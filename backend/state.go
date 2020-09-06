@@ -57,6 +57,9 @@ func (s *Sessions) Exists(id string) bool {
 }
 
 func (s *Sessions) Validate(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+
 	state, exists := s.states[id]
 	if !exists {
 		return false
@@ -70,14 +73,14 @@ func genPassword(ongoingSessions *Sessions) string {
 	return strconv.Itoa(pwi + 100000)
 }
 
-func (s *Sessions) Password(id string, ongoingSessions *Sessions) string {
+func (s *Sessions) Password(id string) string {
 	state, exists := s.states[id]
 	if !exists {
 		state = &guildState{}
 	}
 
 	if state.password == "" {
-		state.password = genPassword(ongoingSessions)
+		state.password = genPassword(s)
 	}
 
 	s.Lock()

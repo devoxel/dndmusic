@@ -14,13 +14,15 @@ import (
 )
 
 var (
-	token string
-	port  int
+	token      string
+	port       int
+	runningDir string
 )
 
 func init() {
 	flag.StringVar(&token, "t", "", "discord bot auth token")
 	flag.IntVar(&port, "p", 8080, "port to run the discord bot")
+	flag.StringVar(&runningDir, "d", "", "running directory")
 }
 
 func validatePassword(pw string) error {
@@ -41,13 +43,13 @@ func sendErrorMsg(ds *discordgo.Session, cid string, err error) {
 	}
 }
 
-func initBot() *discordgo.Session {
+func initBot(ongoingSessions *Sessions) *discordgo.Session {
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
 		log.Fatal("cannot init discord bot")
 	}
 
-	s := &DiscordServer{}
+	s := &DiscordServer{ongoingSessions}
 	dg.AddHandler(s.incomingMessage)
 
 	if err = dg.Open(); err != nil {
@@ -64,9 +66,13 @@ func main() {
 		log.Fatal("no token provided")
 	}
 
-	dg := initBot()
+	ongoingSessions := &Sessions{
+		states:       map[string]*guildState{},
+		pwValidation: map[string]string{},
+	}
 
-	handlerInit()
+	dg := initBot(ongoingSessions)
+	handlerInit(ongoingSessions)
 
 	sc := make(chan os.Signal, 1)
 

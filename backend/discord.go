@@ -43,7 +43,6 @@ func (s *DiscordServer) incomingMessage(ds *discordgo.Session, m *discordgo.Mess
 }
 
 func (s *DiscordServer) sendMessage(ds *discordgo.Session, id, message string) {
-	fmt.Println(ds.Token)
 	m, err := ds.ChannelMessageSend(id, message)
 	if err != nil {
 		log.Printf("error sending message: %v", err)
