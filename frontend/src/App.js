@@ -46,6 +46,7 @@ class App extends React.Component {
       // ## Responses
       //
       // {
+      //        "message": "StatusCheckResponse",
       //        "status": "Verified"
       //        "playlists": []string{}...
       //        "nowPlaying": {
@@ -54,6 +55,7 @@ class App extends React.Component {
       //        },
       // },
       // {
+      //        "message": "StatusCheckResponse",
       //        "status": "Unverified"
       //        "password": "123123",
       // }
@@ -81,13 +83,32 @@ class App extends React.Component {
       // }
       //
       // - 
-      this.setState({ password: ev.data });
+      //
+      const msg = JSON.parse(ev.data);
+
+      // TODO: Some validation here would be nice.
+      if (msg.message === "StatusCheckResponse") {
+        if (msg.status === "Unverified") {
+          this.setState({ password: msg.password });
+        } else if (msg.status === "Verified") {
+          // TODO: Implement this part.
+          this.setState({ password: "Verified" });
+        }
+      }
+
     };
 
     // TODO: enable these to only show on debug.
     socket.onopen = (ev) => {
       // Normal
       console.log("ws: Opening.");
+
+      setInterval(() => {
+        const msg = { 'message': 'StatusCheck' };
+        const toSend = JSON.stringify(msg);
+        console.log(toSend);
+        socket.send(toSend);
+      }, 600);
     }
 
     socket.onclose = (ev) => {
