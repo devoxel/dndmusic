@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"log"
 	"strings"
 
@@ -21,6 +21,10 @@ func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.Message
 	s.sendMessage(ds, m.ChannelID, "Sweet! You're good to go.")
 }
 
+func (s *DiscordServer) handleTestGroovy(ds *discordgo.Session, m *discordgo.MessageCreate) {
+	s.sendMessage(ds, m.ChannelID, "-p https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1")
+}
+
 func (s *DiscordServer) incomingMessage(ds *discordgo.Session, m *discordgo.MessageCreate) {
 	const prefix = "🙂"
 
@@ -37,7 +41,12 @@ func (s *DiscordServer) incomingMessage(ds *discordgo.Session, m *discordgo.Mess
 
 	switch cmd[0] {
 	case "create":
+		if len(cmd) < 2 {
+			sendErrorMsg(ds, m.ChannelID, errors.New("you need to enter a password dingus"))
+		}
 		s.handleCreate(ds, m, cmd[1])
+	case "testgroovy":
+		s.handleTestGroovy(ds, m)
 	}
 
 }
@@ -49,4 +58,5 @@ func (s *DiscordServer) sendMessage(ds *discordgo.Session, id, message string) {
 		log.Printf("channel.id = %v", id)
 		log.Printf("m = %v", m)
 	}
+
 }

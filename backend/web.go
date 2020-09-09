@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -49,6 +50,22 @@ func identityHandler(ongoingSessions *Sessions,
 	return sid, nil
 }
 
+type wsMsg struct {
+	Message string `json:"message"`
+
+	// StatusCheck
+	Status    string     `json:"status,omitempty"`
+	Password  string     `json:"password,omitempty"`
+	Playlists []Playlist `json:"playlists,omitempty"`
+}
+
+type Playlist struct {
+	Title    string `json:"title,omitempty"`
+	URL      string `json:"url,omitempty"`
+	AlbumArt string `json:"album_art,omitempty"`
+	Category string `json:"category,omitempty"`
+}
+
 func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 	// it would be more clever to not create my own simplistic RPC protocol.
 	// here and instead use a proper RPC over websocket.
@@ -56,47 +73,123 @@ func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 
 	// TODO: Limit the amount of loops here to prevent ddos without a ticker.
 	t := time.NewTicker(500 * time.Millisecond)
+	defer c.Close()
 
 	for {
 		<-t.C
 
+		messageType, r, err := c.NextReader()
+		if err != nil {
+			log.Printf("readLoop: read error: %v", err)
+			c.Close()
+			return
+		}
+
+		if messageType != websocket.TextMessage {
+			log.Println("readLoop: bad message type")
+			c.Close()
+			return
+		}
+
+		var req wsMsg
+		d := json.NewDecoder(r)
+
+		if err = d.Decode(&req); err != nil {
+			log.Printf("readLoop: Decode: %v", err)
+			c.Close()
+			return
+		}
+
+		fmt.Printf("%#v\n", req) // XXX: Debug
+
 		// The state of Validate will change when the discord bot is correctly
 		// validated. Shared state: a reliable system indeed!
-		switch ongoingSessions.Validate(id) {
-		case true:
-			messageType, r, err := c.NextReader()
-			if err != nil {
-				log.Printf("readLoop: read error: %v", err)
+
+		// XXX: && false: verification skipped
+		if !ongoingSessions.Validate(id) && false {
+			if req.Message != "StatusCheck" {
+				log.Printf("readLoop: Non StatusCheck in unvalidated session: %v", err)
 				c.Close()
 				return
 			}
 
-			if messageType != websocket.TextMessage {
-				log.Printf("readLoop: bad message type")
-				c.Close()
-				return
+			res := wsMsg{
+				Message:  "StatusCheckResponse",
+				Status:   "Unverified",
+				Password: ongoingSessions.Password(id),
 			}
 
-			b := []byte{}
-			if _, err = r.Read(b); err != nil {
-				c.Close()
-				return
-			}
-
-			fmt.Println(string(b))
-		case false:
-			// We are waiting for the user to input a password
-			// we do this in raw plaintext, for simplicity,
-			// and we send the passowrd in raw plaintext.
 			w, err := c.NextWriter(websocket.TextMessage)
 			if err != nil {
 				log.Printf("readLoop: NextWriter: %v", err)
 				c.Close()
 				return
 			}
-			pw := ongoingSessions.Password(id)
-			w.Write([]byte(pw))
+
+			e := json.NewEncoder(w)
+			if err = e.Encode(res); err != nil {
+				log.Printf("readLoop: Encode: %v", err)
+				c.Close()
+				return
+			}
+
+			log.Printf("wrote %#v\n", res) // XXX: Debug
+
+			continue
 		}
+
+		var res wsMsg
+
+		switch req.Message {
+		case "StatusCheck":
+			samplePlaylists := []Playlist{
+				{
+					Title:    "Monsters: Tribesmen",
+					AlbumArt: "https://i.scdn.co/image/ab67706c0000da842011b5c6608cb3063b3c9593",
+					URL:      "https://open.spotify.com/playlist/2crzs0lic8x58JyPZM8k3v",
+					Category: "Monsters",
+				},
+				{
+					Title:    "Atmosphere: The Underdark",
+					AlbumArt: "https://i.scdn.co/image/ab67706c0000da84107d8e2911ad8be24598e90a",
+					URL:      "https://open.spotify.com/playlist/5Qhtamj9NCxluijLnQ4edN",
+					Category: "Atmosphere",
+				},
+				{
+					Title:    "PoTA: Sacred Stone Monastery",
+					URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+					AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+					Category: "PoTA",
+				},
+				{
+					Title:    "Atmosphere: The Capital",
+					URL:      "https://open.spotify.com/playlist/2t5TWAPs6HYuJ3xbpjHYpx",
+					AlbumArt: "https://i.scdn.co/image/ab67706c0000bebbe4884464ee49fddc2bee89c4",
+					Category: "Atmosphere",
+				},
+			}
+
+			res = wsMsg{
+				Message:   "StatusCheckResponse",
+				Status:    "Verified",
+				Playlists: samplePlaylists,
+			}
+		}
+
+		w, err := c.NextWriter(websocket.TextMessage)
+		if err != nil {
+			log.Printf("readLoop: NextWriter: %v", err)
+			c.Close()
+			return
+		}
+
+		e := json.NewEncoder(w)
+		if err = e.Encode(res); err != nil {
+			log.Printf("readLoop: Encode: %v", err)
+			c.Close()
+			return
+		}
+
 	}
 }
 
@@ -113,6 +206,7 @@ func handlerInit(ongoingSessions *Sessions) {
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true }, // XXX DEBUG
 	}
 
 	// XXX: change secret key

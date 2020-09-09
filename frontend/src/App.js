@@ -1,8 +1,8 @@
 import React from 'react';
-import logo from './logo.svg';
 
 import './App.css';
-
+import InvalidSession from './InvalidSession.js';
+import ValidSession from './ValidSession.js';
 
 class App extends React.Component {
   constructor(props) {
@@ -10,6 +10,7 @@ class App extends React.Component {
     this.state = {
       password: "",
       validated: false,
+      playlists: null,
     }
   }
 
@@ -19,8 +20,6 @@ class App extends React.Component {
     const socket = new WebSocket("wss://sb.invalidsyn.tax/ws");
 
     socket.onmessage = (ev) => {
-      console.log("ws: message: ", ev.data);
-
       // TODO: create WebSocket chatter protocol here.
       // Create login success message, allowing app to transtion to 
       // music screen. State should be stored in the message, to allow
@@ -85,15 +84,25 @@ class App extends React.Component {
       // - 
       //
       const msg = JSON.parse(ev.data);
+      console.log("ws: message: ", msg);
 
-      // TODO: Some validation here would be nice.
       if (msg.message === "StatusCheckResponse") {
-        if (msg.status === "Unverified") {
-          this.setState({ password: msg.password });
-        } else if (msg.status === "Verified") {
-          // TODO: Implement this part.
-          this.setState({ password: "Verified" });
+        /*
+        if (!validStatusCheckResponse(msg)) {
+          // TODO: handle errors
+          return
         }
+        console.log("ws: StatusCheckResponse"); // XXX: DEBUG
+        */
+
+        if (msg.status === "Unverified") {
+          console.log("unverified"); // XXX: DEBUG
+          this.setState({ password: msg.password });
+          return
+        }
+
+        console.log("ws: Verified"); // XXX: DEBUG
+        this.setState({ password: "Verified!", validated: true, playlists: msg.playlists });
       }
 
     };
@@ -130,22 +139,14 @@ class App extends React.Component {
   }
 
   render() {
+    let comp = <InvalidSession password={this.state.password}/>
+    if (this.state.validated) {
+      comp = <ValidSession playlists={this.state.playlists} />
+    }
+
     return (
       <div className="App">
-        <header className="App-header">
-          <img src={logo} className="App-logo" alt="logo" />
-          <p>
-            Your password is: {this.state.password}
-          </p>
-          <a
-            className="App-link"
-            href="https://remindmetowritedocs.invalidtld"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Docs
-          </a>
-        </header>
+        { comp }
       </div>
     );
   }

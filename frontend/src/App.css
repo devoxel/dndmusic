@@ -36,3 +36,12 @@
     transform: rotate(360deg);
   }
 }
+
+.Playlist img {
+  width: 8em;
+  height: 8em;
+}
+
+.PlaylistCategory {
+  display: block;
+}
