@@ -35,14 +35,6 @@ func validatePassword(pw string) error {
 	return nil
 }
 
-func sendErrorMsg(ds *discordgo.Session, cid string, err error) {
-	log.Printf("sending err: %v", err)
-	_, sErr := ds.ChannelMessageSend(cid, err.Error())
-	if sErr != nil {
-		log.Printf("cannot send error message: %v", sErr)
-	}
-}
-
 func initBot(ongoingSessions *Sessions) *discordgo.Session {
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {

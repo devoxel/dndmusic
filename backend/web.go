@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -57,6 +58,10 @@ type wsMsg struct {
 	Status    string     `json:"status,omitempty"`
 	Password  string     `json:"password,omitempty"`
 	Playlists []Playlist `json:"playlists,omitempty"`
+
+	// MusicSelect
+	Type     string `json:"type,omitempty"` // UNUSED
+	Playlist string `json:"playlist,omitempty"`
 }
 
 type Playlist struct {
@@ -64,6 +69,95 @@ type Playlist struct {
 	URL      string `json:"url,omitempty"`
 	AlbumArt string `json:"album_art,omitempty"`
 	Category string `json:"category,omitempty"`
+}
+
+func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
+	res := wsMsg{}
+
+	if req.Message != "StatusCheck" {
+		return res, errors.New("wsInvalidSession: Non StatusCheck in unvalidated session")
+	}
+
+	return wsMsg{
+		Message:  "StatusCheckResponse",
+		Status:   "Unverified",
+		Password: ongoingSessions.Password(id),
+	}, nil
+}
+
+func wsStatusCheck(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
+	samplePlaylists := []Playlist{
+		{
+			Title:    "Monsters: Tribesmen",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da842011b5c6608cb3063b3c9593",
+			URL:      "https://open.spotify.com/playlist/2crzs0lic8x58JyPZM8k3v",
+			Category: "Monsters",
+		},
+		{
+			Title:    "Atmosphere: The Underdark",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da84107d8e2911ad8be24598e90a",
+			URL:      "https://open.spotify.com/playlist/5Qhtamj9NCxluijLnQ4edN",
+			Category: "Atmosphere",
+		},
+		{
+			Title:    "PoTA: Sacred Stone Monastery",
+			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+			Category: "PoTA",
+		},
+		{
+			Title:    "PoTA: Tower of Eagle Yokes",
+			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+			Category: "PoTA",
+		},
+		{
+			Title:    "PoTA: That Town with the Big Hole",
+			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+			Category: "PoTA",
+		},
+		{
+			Title:    "Atmosphere: The Capital",
+			URL:      "https://open.spotify.com/playlist/2t5TWAPs6HYuJ3xbpjHYpx",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000bebbe4884464ee49fddc2bee89c4",
+			Category: "Atmosphere",
+		},
+		{
+			Title:    "KoToR: Sad Star Wars",
+			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+			Category: "KoToR",
+		},
+		{
+			Title:    "KoToR: Fighting the Sith",
+			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+			Category: "KoToR",
+		},
+		{
+			Title:    "KoToR: Lightsabers!",
+			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
+			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
+			Category: "KoToR",
+		},
+	}
+
+	return wsMsg{
+		Message:   "StatusCheckResponse",
+		Status:    "Verified",
+		Playlists: samplePlaylists,
+	}, nil
+}
+
+func wsMusicSelect(ongoingSessions *Sessions, id string, req wsMsg) error {
+	/* XXX: Eventually return to show errors to user.
+	return wsMsg{
+		Message "MusicSelectionResponse",
+	}
+	*/
+
+	return ongoingSessions.SetPlaylist(id, req.Playlist)
 }
 
 func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
@@ -100,80 +194,34 @@ func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 			return
 		}
 
-		fmt.Printf("%#v\n", req) // XXX: Debug
-
 		// The state of Validate will change when the discord bot is correctly
 		// validated. Shared state: a reliable system indeed!
 
-		// XXX: && false: verification skipped
-		if !ongoingSessions.Validate(id) && false {
-			if req.Message != "StatusCheck" {
-				log.Printf("readLoop: Non StatusCheck in unvalidated session: %v", err)
-				c.Close()
-				return
-			}
-
-			res := wsMsg{
-				Message:  "StatusCheckResponse",
-				Status:   "Unverified",
-				Password: ongoingSessions.Password(id),
-			}
-
-			w, err := c.NextWriter(websocket.TextMessage)
-			if err != nil {
-				log.Printf("readLoop: NextWriter: %v", err)
-				c.Close()
-				return
-			}
-
-			e := json.NewEncoder(w)
-			if err = e.Encode(res); err != nil {
-				log.Printf("readLoop: Encode: %v", err)
-				c.Close()
-				return
-			}
-
-			log.Printf("wrote %#v\n", res) // XXX: Debug
-
-			continue
-		}
-
 		var res wsMsg
 
-		switch req.Message {
-		case "StatusCheck":
-			samplePlaylists := []Playlist{
-				{
-					Title:    "Monsters: Tribesmen",
-					AlbumArt: "https://i.scdn.co/image/ab67706c0000da842011b5c6608cb3063b3c9593",
-					URL:      "https://open.spotify.com/playlist/2crzs0lic8x58JyPZM8k3v",
-					Category: "Monsters",
-				},
-				{
-					Title:    "Atmosphere: The Underdark",
-					AlbumArt: "https://i.scdn.co/image/ab67706c0000da84107d8e2911ad8be24598e90a",
-					URL:      "https://open.spotify.com/playlist/5Qhtamj9NCxluijLnQ4edN",
-					Category: "Atmosphere",
-				},
-				{
-					Title:    "PoTA: Sacred Stone Monastery",
-					URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-					AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-					Category: "PoTA",
-				},
-				{
-					Title:    "Atmosphere: The Capital",
-					URL:      "https://open.spotify.com/playlist/2t5TWAPs6HYuJ3xbpjHYpx",
-					AlbumArt: "https://i.scdn.co/image/ab67706c0000bebbe4884464ee49fddc2bee89c4",
-					Category: "Atmosphere",
-				},
+		switch {
+		case !ongoingSessions.Validate(id): // XXX
+			res, err = wsInvalidSession(ongoingSessions, id, req)
+			if err != nil {
+				log.Printf("readLoop: InvalidSession: %v", err)
+				c.Close()
+				return
 			}
-
-			res = wsMsg{
-				Message:   "StatusCheckResponse",
-				Status:    "Verified",
-				Playlists: samplePlaylists,
+		case req.Message == "StatusCheck":
+			res, err = wsStatusCheck(ongoingSessions, id, req)
+			if err != nil {
+				log.Printf("readLoop: StatusCheck: %v", err)
+				c.Close()
+				return
 			}
+		case req.Message == "MusicSelect":
+			err = wsMusicSelect(ongoingSessions, id, req)
+			if err != nil {
+				log.Printf("readLoop: MusicSelect: %v", err)
+				c.Close()
+				return
+			}
+			continue
 		}
 
 		w, err := c.NextWriter(websocket.TextMessage)
@@ -193,16 +241,7 @@ func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 	}
 }
 
-func handlerInit(ongoingSessions *Sessions) {
-	frontendPath := path.Join(runningDir, "frontend/build")
-	index := path.Join(frontendPath, "index.html")
-	_, err := os.Stat(index)
-	if err != nil {
-		log.Fatalf("cannot stat frontend path %v: %v", index, err)
-	}
-	d, _ := ioutil.ReadFile(index)
-	fmt.Println(string(d))
-
+func websocketHandler(ongoingSessions *Sessions) func(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -211,9 +250,8 @@ func handlerInit(ongoingSessions *Sessions) {
 
 	// XXX: change secret key
 	store := sessions.NewCookieStore([]byte("asdfasdf"))
-	staticHandler := http.FileServer(http.Dir(frontendPath))
 
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// XXX DBEUG spew.Dump(r.Header)
 		cookieSession, _ := store.Get(r, "session-name")
 
@@ -237,24 +275,27 @@ func handlerInit(ongoingSessions *Sessions) {
 		fmt.Println("upgraded")
 
 		readLoop(conn, id, ongoingSessions)
-	})
+	}
+}
+
+func handlerInit(ongoingSessions *Sessions) {
+	frontendPath := path.Join(runningDir, "frontend/build")
+	index := path.Join(frontendPath, "index.html")
+	_, err := os.Stat(index)
+	if err != nil {
+		log.Fatalf("cannot stat frontend path %v: %v", index, err)
+	}
+
+	d, _ := ioutil.ReadFile(index)
+	fmt.Println(string(d))
+
+	staticHandler := http.FileServer(http.Dir(frontendPath))
+
+	http.HandleFunc("/ws", websocketHandler(ongoingSessions))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Should probably use something cached.
 		// XXX: Remove hardcoded URL.
 		staticHandler.ServeHTTP(w, r)
-
-		/* Switch to ws UI
-		// Either show a password for a unvalidated session, or we can show a normal session.
-		switch ongoingSessions.Validate(sid) {
-		case true:
-			log.Printf("valid user %v", id)
-			fmt.Fprintf(w, "hi %v", sid)
-		case false:
-			// this case also creates the new user.
-			log.Printf("unvalidated user %v", id)
-			fmt.Fprintf(w, "your password is %v", ongoingSessions.Password(sid, ongoingSessions))
-		}
-		*/
 	})
 }

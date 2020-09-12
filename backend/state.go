@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"strconv"
@@ -12,8 +13,21 @@ import (
 
 type guildState struct {
 	confirmed bool
-	channel   string
-	password  string
+
+	channel  string
+	password string
+
+	playlist string
+}
+
+func (gs *guildState) SetPlaylist(url string) {
+	gs.playlist = url
+	fmt.Println("guildState: setPlaylist: ", url)
+	// Check if we're currently playlist this playlist, if so, bounce.
+	// Download playlist if we haven't we haven't seen it before.
+	// Shuffle playlist (by default).
+	// Set current song to top of playlist.
+	// Signal that we want to join the voice channel and start playing.
 }
 
 type Sessions struct {
@@ -66,6 +80,32 @@ func (s *Sessions) Validate(id string) bool {
 	}
 
 	return state.confirmed
+}
+
+func (s *Sessions) GetState(id string) (*guildState, error) {
+	state, exists := s.states[id]
+	if !exists {
+		return nil, errors.New("invalid id")
+	}
+
+	if !state.confirmed {
+		return nil, errors.New("unverified id")
+	}
+
+	return state, nil
+}
+
+func (s *Sessions) SetPlaylist(id, url string) error {
+	s.Lock()
+	state, err := s.GetState(id)
+	if err != nil {
+		return err
+	}
+	s.Unlock()
+
+	state.SetPlaylist(url)
+
+	return nil
 }
 
 func genPassword(ongoingSessions *Sessions) string {
