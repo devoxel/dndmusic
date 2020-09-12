@@ -1,28 +1,56 @@
 import React from 'react';
 import _ from 'lodash';
 
-function PlaylistCategory(props) {
-  console.log(props)
-
+function Playlist(props) {
   const playList = _.map(props.playlists, (pl) => {
     return (
-      <a href={pl.url} className="Playlist" key={pl.url}>
-        <img className="Playlist-img" alt="album art" src={pl.album_art}/>
-        <p>{pl.title}</p>
-      </a>
+      <div className="Playlist" >
+        <p className="Playlist-Title">
+          <a key={pl.url} onClick={() => { props.handlePlaylist(pl.url); }} className="Playlist-Link">
+            {pl.title}
+          </a>
+        </p>
+      </div>
     );
   });
 
-  console.log("asdfadf", playList[0])
-  console.log(playList instanceof Array)
-
   return (
-    <div className="PlaylistCategory">
-     <hr/>
-     <p> { props.name } </p>
-     { playList }
+    <div>
+      { playList }
     </div>
   );
+}
+
+function Folder (props) {
+  const ch = props.up ? "↓": "↑"
+  return (
+    <div className="PlaylistCategory-Folder" onClick={props.onClick}>{ch}</div>
+  );
+}
+
+class PlaylistCategory extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      show: true,
+    }
+  }
+
+  render() {
+    // <img className="Playlist-img" alt="album art" src={pl.album_art}/>
+    let playlist = ( <br/> )
+    if (this.state.show) {
+      playlist = (<Playlist handlePlaylist={this.props.handlePlaylist} playlists={this.props.playlists}/>)
+    }
+
+    return (
+      <div className="PlaylistCategory">
+        <h4 className="PlaylistCategory-Title"> { this.props.name } </h4>
+        <Folder up={this.state.show} onClick={() => { this.setState({show: !this.state.show}) }} />
+        { playlist }
+      </div>
+    );
+  }
 }
 
 function ValidSession(props) {
@@ -39,15 +67,15 @@ function ValidSession(props) {
   console.log(categorys)
 
   const playlists = _.map(categorys, (k, v) => {
-    return <PlaylistCategory name={v} playlists={k} />
+    return <PlaylistCategory handlePlaylist={props.handlePlaylist} name={v} playlists={k} />
   });
 
   console.log(playlists);
 
   return (
-    <header className="App-header">
+    <div className="ValidSession-body">
       { playlists }
-    </header>
+    </div>
   );
 }
 

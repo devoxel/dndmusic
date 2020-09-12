@@ -4,6 +4,22 @@ import './App.css';
 import InvalidSession from './InvalidSession.js';
 import ValidSession from './ValidSession.js';
 
+const socket = new WebSocket("wss://sb.invalidsyn.tax/ws");
+
+const Footer = () => {
+  return (
+    <div className="Footer">
+      <a
+        href="https://remindmetowritedocs.invalidtld"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        ?
+      </a>
+    </div>
+  );
+}
+
 class App extends React.Component {
   constructor(props) {
     super(props);
@@ -17,72 +33,7 @@ class App extends React.Component {
   componentDidMount() {
     this.setState({ password: "" });
 
-    const socket = new WebSocket("wss://sb.invalidsyn.tax/ws");
-
     socket.onmessage = (ev) => {
-      // TODO: create WebSocket chatter protocol here.
-      // Create login success message, allowing app to transtion to 
-      // music screen. State should be stored in the message, to allow
-      // for user creation/etc down the line.
-      //
-      // On connection server should wait for StatusCheck message. Then
-      // the server should report a status and write the password required
-      // if that status is "Unverified".
-      // 
-      // If the status is Verified then the server should return a Music UI
-      // state - a list of playlists to render on the UI to be selected by the
-      // user. If a user clicks on a playlist, the client should send a MusicSelect
-      // message, which prompts the bot to start playing music.
-      //
-      // # StatusCheck (sent by client) Ask the server for a status
-      //
-      // ## Request
-      //
-      // {
-      //        "message": "StatusCheck",
-      // }
-      //
-      // ## Responses
-      //
-      // {
-      //        "message": "StatusCheckResponse",
-      //        "status": "Verified"
-      //        "playlists": []string{}...
-      //        "nowPlaying": {
-      //                "playlist": "https://.../",
-      //                "song": "Living La Vida Loca",
-      //        },
-      // },
-      // {
-      //        "message": "StatusCheckResponse",
-      //        "status": "Unverified"
-      //        "password": "123123",
-      // }
-      //
-      // 
-      // # Music Selection
-      //
-      // ## Request
-      //
-      // {
-      //        "message": "MusicSelect",
-      //        "type": "Playlist",
-      //        "playlist": "https://.../",
-      // }
-      //
-      // {
-      //        "message": "MusicSelect",
-      //        "type": "SkipSong",
-      // }
-      //
-      // {
-      //        "message": "MusicSelect",
-      //        "type": "SetSong",
-      //        "song": "",
-      // }
-      //
-      // - 
-      //
       const msg = JSON.parse(ev.data);
       console.log("ws: message: ", msg);
 
@@ -138,15 +89,28 @@ class App extends React.Component {
 
   }
 
+  handlePlaylist(url) {
+    console.log("PLAYLIST HANDLED ", url)
+
+    const msg = {
+      'message': 'MusicSelect',
+      'type': 'Playlist',
+      'playlist': url,
+    };
+    const toSend = JSON.stringify(msg);
+    socket.send(toSend);
+  }
+
   render() {
     let comp = <InvalidSession password={this.state.password}/>
     if (this.state.validated) {
-      comp = <ValidSession playlists={this.state.playlists} />
+      comp = <ValidSession handlePlaylist={this.handlePlaylist} playlists={this.state.playlists} />
     }
 
     return (
       <div className="App">
         { comp }
+        < Footer />
       </div>
     );
   }

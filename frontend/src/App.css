@@ -1,40 +1,30 @@
+:root {
+  /* colour variables (solarized) */
+  --colour-base03:    #002b36;
+  --colour-base02:    #073642;
+  --colour-base01:    #586e75;
+  --colour-base00:    #657b83;
+  --colour-base0:     #839496;
+  --colour-base1:     #93a1a1;
+  --colour-base2:     #eee8d5;
+  --colour-base3:     #fdf6e3;
+  --colour-yellow:    #b58900;
+  --colour-orange:    #cb4b16;
+  --colour-red:       #dc322f;
+  --colour-magenta:   #d33682;
+  --colour-violet:    #6c71c4;
+  --colour-blue:      #268bd2;
+  --colour-cyan:      #2aa198;
+  --colour-green:     #859900;
+}
+
+body {
+  font-family: 'VT323', monospace;
+  background-color: var(--colour-base03);
+}
+
 .App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
-}
-
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  margin-left: 1em;
 }
 
 .Playlist img {
@@ -42,6 +32,52 @@
   height: 8em;
 }
 
-.PlaylistCategory {
-  display: block;
+.PlaylistCategory-Title {
+  color: var(--colour-red);
+  margin: .5em 0px 0px 0px;
+  font-weight: normal;
+}
+
+.PlaylistCategory-Folder {
+  float: left;
+  color: var(--colour-red);
+
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.Playlist {
+  margin: 0px 0px 0px 0px;
+}
+
+.Playlist-Title {
+  margin: 0px 0px 0px 0px;
+  padding-left: 1em;
+}
+
+.Playlist a {
+  color: var(--colour-base00);
+  text-decoration: none;
+}
+
+.Footer {
+  position: fixed;
+  background-color: var(--colour-base02);
+
+  bottom: 0%;
+  left: 0%;
+  width: 100%;
+  margin: 0px 0px 0px 0px;
+  padding: 0px 0px 0px 0px;
+}
+
+.Footer a {
+  color: var(--colour-cyan);
+  padding-left: .5em;
+  padding-bottom: 1em;
+  text-decoration: none;
 }
