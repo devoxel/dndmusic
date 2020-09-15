@@ -12,22 +12,31 @@ import (
 )
 
 type guildState struct {
+	sync.Mutex
+
 	confirmed bool
+	password  string
 
-	channel  string
-	password string
-
-	playlist string
+	msg       func(msg string) error
+	joinVoice func() (voice *discordgo.VoiceConnection, err error)
+	p         *Player
 }
 
 func (gs *guildState) SetPlaylist(url string) {
-	gs.playlist = url
-	fmt.Println("guildState: setPlaylist: ", url)
-	// Check if we're currently playlist this playlist, if so, bounce.
-	// Download playlist if we haven't we haven't seen it before.
-	// Shuffle playlist (by default).
-	// Set current song to top of playlist.
+	gs.Lock()
+	defer gs.Unlock()
+
+	if err := gs.p.SetPlaylist(url); err != nil {
+		log.Printf("SetPlaylist: cannot set: %v", err)
+
+		msg := fmt.Sprintf("Couldn't set your playlist. Here's the error, if it helps: %v", err)
+		gs.msg(msg)
+	}
+
 	// Signal that we want to join the voice channel and start playing.
+	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
+
+	return
 }
 
 type Sessions struct {
@@ -40,7 +49,8 @@ type Sessions struct {
 	pwValidation map[string]string
 }
 
-func (s *Sessions) Confirm(pw string, m *discordgo.MessageCreate) error {
+func (s *Sessions) Confirm(pw string, m *discordgo.MessageCreate,
+	msg func(msg string) error, joinVoice func() (*discordgo.VoiceConnection, error)) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -56,8 +66,10 @@ func (s *Sessions) Confirm(pw string, m *discordgo.MessageCreate) error {
 	delete(s.pwValidation, pw)
 
 	state := s.states[session]
+
 	state.confirmed = true
-	s.states[session] = state
+	state.msg = msg
+	state.joinVoice = joinVoice
 
 	return nil
 }
@@ -116,7 +128,7 @@ func genPassword(ongoingSessions *Sessions) string {
 func (s *Sessions) Password(id string) string {
 	state, exists := s.states[id]
 	if !exists {
-		state = &guildState{}
+		state = &guildState{p: NewPlayer()}
 	}
 
 	if state.password == "" {
@@ -125,6 +137,7 @@ func (s *Sessions) Password(id string) string {
 
 	s.Lock()
 	defer s.Unlock()
+
 	s.pwValidation[state.password] = id
 	s.states[id] = state
 

@@ -5,22 +5,29 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/devoxel/dndmusic/spotify"
 )
 
 var (
-	token      string
-	port       int
-	runningDir string
+	token         string
+	port          int
+	runningDir    string
+	spotifyID     string
+	spotifySecret string
 )
 
 func init() {
 	flag.StringVar(&token, "t", "", "discord bot auth token")
+	flag.StringVar(&spotifyID, "spotify-id", "", "spotify id")
+	flag.StringVar(&spotifySecret, "spotify-secret", "", "spotify secret")
 	flag.IntVar(&port, "p", 8080, "port to run the discord bot")
 	flag.StringVar(&runningDir, "d", "", "running directory")
 }
@@ -51,9 +58,25 @@ func initBot(ongoingSessions *Sessions) *discordgo.Session {
 
 	return dg
 }
+func initADM() {
+	// XXX: dirty global
+	adm = &AudioDownloadManager{
+		// XXX: AudioDownloadManager could sync cache from file tree.
+		cache: map[string]Playlist{},
+		s:     &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
+	}
+	adm.readCache()
+}
 
 func main() {
 	flag.Parse()
+	rand.Seed(time.Now().Unix())
+	initADM()
+
+	if err := adm.s.Authorize(); err != nil {
+		log.Fatalf("cannot init spotify client: %v", err)
+	}
+
 	if token == "" {
 		log.Fatal("no token provided")
 	}

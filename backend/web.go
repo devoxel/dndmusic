@@ -55,16 +55,16 @@ type wsMsg struct {
 	Message string `json:"message"`
 
 	// StatusCheck
-	Status    string     `json:"status,omitempty"`
-	Password  string     `json:"password,omitempty"`
-	Playlists []Playlist `json:"playlists,omitempty"`
+	Status    string       `json:"status,omitempty"`
+	Password  string       `json:"password,omitempty"`
+	Playlists []WSPlaylist `json:"playlists,omitempty"`
 
 	// MusicSelect
-	Type     string `json:"type,omitempty"` // UNUSED
-	Playlist string `json:"playlist,omitempty"`
+	Type       string `json:"type,omitempty"` // UNUSED
+	WSPlaylist string `json:"playlist,omitempty"`
 }
 
-type Playlist struct {
+type WSPlaylist struct {
 	Title    string `json:"title,omitempty"`
 	URL      string `json:"url,omitempty"`
 	AlbumArt string `json:"album_art,omitempty"`
@@ -86,7 +86,7 @@ func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, e
 }
 
 func wsStatusCheck(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
-	samplePlaylists := []Playlist{
+	samplePlaylists := []WSPlaylist{
 		{
 			Title:    "Monsters: Tribesmen",
 			AlbumArt: "https://i.scdn.co/image/ab67706c0000da842011b5c6608cb3063b3c9593",
@@ -157,7 +157,7 @@ func wsMusicSelect(ongoingSessions *Sessions, id string, req wsMsg) error {
 	}
 	*/
 
-	return ongoingSessions.SetPlaylist(id, req.Playlist)
+	return ongoingSessions.SetPlaylist(id, req.WSPlaylist)
 }
 
 func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {

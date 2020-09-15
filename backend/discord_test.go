@@ -86,7 +86,7 @@ func TestIncomingMessageHandler(t *testing.T) {
 				Content: test.messageContent,
 			}}
 
-			ds.incomingMessage(test.mockSession, mc)
+			ds.handleMessage(test.mockSession, mc)
 			if test.wantNotCalled && test.mockSession.called == 0 {
 				return
 			} else if test.wantNotCalled {
