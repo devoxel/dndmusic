@@ -53,7 +53,13 @@ class App extends React.Component {
         }
 
         console.log("ws: Verified"); // XXX: DEBUG
-        this.setState({ password: "Verified!", validated: true, playlists: msg.playlists });
+        this.setState({
+          password: "Verified!",
+          validated: true,
+          playlists: msg.playlists,
+          playing: msg.playing,
+          current_playist: msg.current_playlist,
+        });
       }
 
     };

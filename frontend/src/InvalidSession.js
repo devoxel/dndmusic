@@ -4,9 +4,14 @@ import logo from './logo.svg';
 function InvalidSession(props) {
   return (
     <header className="InvalidSession-header">
-      <p>
-        Your password is: {props.password}
-      </p>
+      <div className="InvalidSession">
+        <p>
+          Your password is:
+            <span className="InvalidSession-password">
+              {props.password}
+            </span>
+        </p>
+      </div>
     </header>
   );
 }

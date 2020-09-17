@@ -32,6 +32,15 @@ body {
   height: 8em;
 }
 
+.InvalidSession {
+  font-family: 5em;
+  color: var(--colour-base00);
+}
+
+.InvalidSession-password {
+  color: var(--colour-red);
+}
+
 .PlaylistCategory-Title {
   color: var(--colour-red);
   margin: .5em 0px 0px 0px;
