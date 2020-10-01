@@ -55,20 +55,30 @@ type wsMsg struct {
 	Message string `json:"message"`
 
 	// StatusCheck
-	Status    string       `json:"status,omitempty"`
-	Password  string       `json:"password,omitempty"`
-	Playlists []WSPlaylist `json:"playlists,omitempty"`
+	Status string `json:"status,omitempty"`
+	// StatusCheck [Invalidated]
+	Password string `json:"password,omitempty"`
+	// StatusCheck [Validated]
+	Playlists        []WSPlaylist `json:"playlists,omitempty"`
+	CurrentlyPlaying Track        `json:"playing,omitempty"`
+	CurrentPlaylist  []Track      `json:"current_playlist,omitempty"`
 
 	// MusicSelect
 	Type       string `json:"type,omitempty"` // UNUSED
 	WSPlaylist string `json:"playlist,omitempty"`
+
+	// MusicSkip
+	//  Empty.
 }
 
 type WSPlaylist struct {
 	Title    string `json:"title,omitempty"`
 	URL      string `json:"url,omitempty"`
-	AlbumArt string `json:"album_art,omitempty"`
 	Category string `json:"category,omitempty"`
+}
+
+func (p WSPlaylist) Equal(o WSPlaylist) bool {
+	return p.Title == o.Title && p.URL == o.URL && p.Category == o.Category
 }
 
 func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
@@ -86,67 +96,20 @@ func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, e
 }
 
 func wsStatusCheck(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
-	samplePlaylists := []WSPlaylist{
-		{
-			Title:    "Monsters: Tribesmen",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da842011b5c6608cb3063b3c9593",
-			URL:      "https://open.spotify.com/playlist/2crzs0lic8x58JyPZM8k3v",
-			Category: "Monsters",
-		},
-		{
-			Title:    "Atmosphere: The Underdark",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da84107d8e2911ad8be24598e90a",
-			URL:      "https://open.spotify.com/playlist/5Qhtamj9NCxluijLnQ4edN",
-			Category: "Atmosphere",
-		},
-		{
-			Title:    "PoTA: Sacred Stone Monastery",
-			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-			Category: "PoTA",
-		},
-		{
-			Title:    "PoTA: Tower of Eagle Yokes",
-			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-			Category: "PoTA",
-		},
-		{
-			Title:    "PoTA: That Town with the Big Hole",
-			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-			Category: "PoTA",
-		},
-		{
-			Title:    "Atmosphere: The Capital",
-			URL:      "https://open.spotify.com/playlist/2t5TWAPs6HYuJ3xbpjHYpx",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000bebbe4884464ee49fddc2bee89c4",
-			Category: "Atmosphere",
-		},
-		{
-			Title:    "KoToR: Sad Star Wars",
-			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-			Category: "KoToR",
-		},
-		{
-			Title:    "KoToR: Fighting the Sith",
-			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-			Category: "KoToR",
-		},
-		{
-			Title:    "KoToR: Lightsabers!",
-			URL:      "https://open.spotify.com/playlist/3uJFVs1EUBA6jKqWhn9FA1",
-			AlbumArt: "https://i.scdn.co/image/ab67706c0000da8443fdd964673d401481cd14b0",
-			Category: "KoToR",
-		},
+	st, err := ongoingSessions.GetState(id)
+	if err != nil {
+		return wsMsg{}, err
 	}
 
+	playing, playlist := st.Playing()
+	playlists := st.Playlists()
+
 	return wsMsg{
-		Message:   "StatusCheckResponse",
-		Status:    "Verified",
-		Playlists: samplePlaylists,
+		Message:          "StatusCheckResponse",
+		Status:           "Verified",
+		Playlists:        playlists,
+		CurrentlyPlaying: playing,
+		CurrentPlaylist:  playlist,
 	}, nil
 }
 
@@ -160,10 +123,28 @@ func wsMusicSelect(ongoingSessions *Sessions, id string, req wsMsg) error {
 	return ongoingSessions.SetPlaylist(id, req.WSPlaylist)
 }
 
+func wsMusicSkip(ongoingSessions *Sessions, id string, req wsMsg) error {
+	/* XXX: Eventually return to show errors to user.
+	return wsMsg{
+		Message "MusicSelectionResponse",
+	}
+	*/
+
+	gs, err := ongoingSessions.GetState(id)
+	if err != nil {
+		return err
+	}
+
+	gs.Skip()
+	return nil
+}
+
 func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 	// it would be more clever to not create my own simplistic RPC protocol.
 	// here and instead use a proper RPC over websocket.
 	// but lets be simple about it and just go for it.
+
+	// TODO: Remove polling in favour of non polling approach.
 
 	// TODO: Limit the amount of loops here to prevent ddos without a ticker.
 	t := time.NewTicker(500 * time.Millisecond)
@@ -218,6 +199,14 @@ func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 			err = wsMusicSelect(ongoingSessions, id, req)
 			if err != nil {
 				log.Printf("readLoop: MusicSelect: %v", err)
+				c.Close()
+				return
+			}
+			continue
+		case req.Message == "MusicSkip":
+			err = wsMusicSkip(ongoingSessions, id, req)
+			if err != nil {
+				log.Printf("readLoop: MusicSkip: %v", err)
 				c.Close()
 				return
 			}

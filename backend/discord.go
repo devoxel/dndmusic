@@ -21,6 +21,76 @@ func (s *DiscordServer) incomingMessage(ds *discordgo.Session, m *discordgo.Mess
 	s.handleMessage(ds, m)
 }
 
+func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.MessageCreate) {
+	const prefix = "🙂"
+
+	if !strings.HasPrefix(m.Content, prefix) {
+		return
+	}
+
+	cmd := strings.Fields(strings.TrimPrefix(m.Content, prefix))
+	for i, c := range cmd {
+		if i == 0 {
+			cmd[i] = strings.ToLower(cmd[i])
+		}
+		cmd[i] = strings.TrimSpace(c)
+	}
+
+	if len(cmd) == 0 {
+		return
+	}
+
+	switch cmd[0] {
+	case "create":
+		if len(cmd) < 2 {
+			s.sendErrorMsg(ds, m, errors.New("you need to enter a password dingus"))
+			return
+		}
+		s.handleCreate(ds, m, cmd[1])
+	case "skip":
+		s.handleSkip(ds, m)
+	case "add":
+		pl, err := s.parsePlaylistArgs(cmd)
+		if err != nil {
+			s.sendErrorMsg(ds, m, err)
+			return
+		}
+		s.handleAdd(ds, m, pl)
+	case "delete":
+		pl, err := s.parsePlaylistArgs(cmd)
+		if err != nil {
+			s.sendErrorMsg(ds, m, err)
+			return
+		}
+		s.handleDelete(ds, m, pl)
+	}
+}
+
+func (s *DiscordServer) handleAdd(ds *discordgo.Session, m *discordgo.MessageCreate, pl WSPlaylist) {
+	gs, err := s.sessions.StateFromDiscord(m.ChannelID)
+	if err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+
+	if err := gs.AddPlaylist(pl); err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+}
+
+func (s *DiscordServer) handleDelete(ds *discordgo.Session, m *discordgo.MessageCreate, pl WSPlaylist) {
+	gs, err := s.sessions.StateFromDiscord(m.ChannelID)
+	if err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+	if err := gs.RemovePlaylist(pl); err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+}
+
 func (s *DiscordServer) sendErrorMsg(ds discordSession, m *discordgo.MessageCreate, err error) {
 	log.Printf("sending err: %v", err)
 	_, sErr := ds.ChannelMessageSend(m.ChannelID, err.Error())
@@ -47,8 +117,6 @@ func (s *DiscordServer) getSenderCID(ds *discordgo.Session, m *discordgo.Message
 }
 
 func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.MessageCreate, pw string) {
-	log.Println("confirm")
-
 	sendMsg := func(msg string) error {
 		_, err := ds.ChannelMessageSend(m.ChannelID, msg)
 		return err
@@ -64,50 +132,23 @@ func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.Message
 	}
 
 	if err := s.sessions.Confirm(pw, m, sendMsg, joinVoice); err != nil {
+		if err == ErrSessionExists {
+			// XXX: this is a major issue.
+			sendMsg("session in progress, currently only one session per discord.")
+		} else {
+			s.sendErrorMsg(ds, m, err)
+		}
+		return
+	}
+}
+
+func (s *DiscordServer) handleSkip(ds *discordgo.Session, m *discordgo.MessageCreate) {
+	gs, err := s.sessions.StateFromDiscord(m.ChannelID)
+	if err != nil {
 		s.sendErrorMsg(ds, m, err)
 		return
 	}
-
-	s.sendMessage(ds, m.ChannelID, "Sweet! You're good to go.")
-}
-
-func (s *DiscordServer) handleDocs(ds discordSession, m *discordgo.MessageCreate) {
-	_, err := ds.ChannelMessageSend(m.ChannelID, "you're using the bot wrong.")
-	if err != nil {
-		log.Printf("error sending message: %v", err)
-		log.Printf("channel.id = %v", m.ChannelID)
-		log.Printf("m = %v", m)
-	}
-}
-
-func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.MessageCreate) {
-	const prefix = "🙂"
-
-	if !strings.HasPrefix(m.Content, prefix) {
-		return
-	}
-
-	cmd := strings.Fields(strings.TrimPrefix(m.Content, prefix))
-	for i, c := range cmd {
-		cmd[i] = strings.ToLower(strings.TrimSpace(c))
-	}
-
-	if len(cmd) == 0 {
-		s.handleDocs(ds, m)
-		return
-	}
-
-	switch cmd[0] {
-	case "create":
-		log.Println("create")
-		if len(cmd) < 2 {
-			s.sendErrorMsg(ds, m, errors.New("you need to enter a password dingus"))
-			return
-		}
-		s.handleCreate(ds, m, cmd[1])
-	default:
-		s.handleDocs(ds, m)
-	}
+	gs.Skip()
 }
 
 func (s *DiscordServer) sendMessage(ds discordSession, id, message string) {
@@ -117,4 +158,13 @@ func (s *DiscordServer) sendMessage(ds discordSession, id, message string) {
 		log.Printf("channel.id = %v", id)
 		log.Printf("m = %v", m)
 	}
+}
+
+func (s *DiscordServer) parsePlaylistArgs(cmd []string) (WSPlaylist, error) {
+	if len(cmd) != 4 {
+		return WSPlaylist{}, errors.New("should be: 🙂 name url category")
+	}
+	log.Println("CMD=", cmd)
+
+	return WSPlaylist{cmd[1], cmd[2], cmd[3]}, nil
 }

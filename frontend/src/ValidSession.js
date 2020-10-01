@@ -1,5 +1,6 @@
 import React from 'react';
 import _ from 'lodash';
+import PlayerBar from './Player.js';
 
 function Playlist(props) {
   const playList = _.map(props.playlists, (pl) => {
@@ -75,6 +76,11 @@ function ValidSession(props) {
   return (
     <div className="ValidSession-body">
       { playlists }
+      < PlayerBar
+        playing={props.playing}
+        current_playlist={props.current_playlist}
+        handleSkip={props.handleSkip}
+      />
     </div>
   );
 }

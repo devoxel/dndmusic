@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
@@ -17,9 +18,22 @@ type guildState struct {
 	confirmed bool
 	password  string
 
+	playlists []WSPlaylist
+
 	msg       func(msg string) error
 	joinVoice func() (voice *discordgo.VoiceConnection, err error)
 	p         *Player
+}
+
+func newGuildState() *guildState {
+	playlist := make([]WSPlaylist, len(samplePlaylists))
+	copy(playlist, samplePlaylists)
+
+	// TODO: persist playlists
+	return &guildState{
+		p:         NewPlayer(),
+		playlists: samplePlaylists,
+	}
 }
 
 func (gs *guildState) SetPlaylist(url string) {
@@ -39,15 +53,102 @@ func (gs *guildState) SetPlaylist(url string) {
 	return
 }
 
+func (gs *guildState) Playing() (Track, []Track) {
+	return gs.p.Playing()
+}
+
+func (gs *guildState) Skip() {
+	gs.p.Skip()
+}
+
+func (gs *guildState) Playlists() []WSPlaylist {
+	gs.Lock()
+	defer gs.Unlock()
+	return gs.playlists
+}
+
+func validatePlaylist(p WSPlaylist) error {
+	if p.Title == "" {
+		return errors.New("empty name")
+	}
+
+	if p.URL == "" {
+		return errors.New("empty url")
+	}
+
+	if p.Category == "" {
+		return errors.New("empty category")
+	}
+
+	httpPrefix := func(s string) bool {
+		return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+	}
+
+	if httpPrefix(p.Title) {
+		return errors.New("Title should not have http prefix")
+	}
+
+	if !httpPrefix(p.URL) {
+		return errors.New("URL has no https:// prefix")
+	}
+
+	_, err := adm.DownloadPlaylist(p.URL)
+	if err != nil {
+		return fmt.Errorf("can't download playlist: %w", err)
+	}
+
+	return nil
+}
+
+func (gs *guildState) AddPlaylist(p WSPlaylist) error {
+	if err := validatePlaylist(p); err != nil {
+		return err
+	}
+
+	gs.Lock()
+	defer gs.Unlock()
+
+	gs.playlists = append(gs.playlists, p)
+	return nil
+}
+
+func (gs *guildState) RemovePlaylist(match WSPlaylist) error {
+	gs.Lock()
+	defer gs.Unlock()
+
+	// O(n) to remove a playlist, would be nice to remove this.
+	got := -1
+	for i, p := range gs.playlists {
+		if p.Equal(match) {
+			got = i
+			break
+		}
+	}
+
+	if got == -1 {
+		return errors.New("no matching playlist")
+	}
+
+	copy(gs.playlists[got:], gs.playlists[got+1:])
+	gs.playlists = gs.playlists[:len(gs.playlists)-1]
+
+	return nil
+}
+
 type Sessions struct {
 	sync.Mutex
 
-	// map[session] = states
+	// map[discordSessionID] -> session id
+	discordToState map[string]string
+
+	// map[session id] -> state
 	states map[string]*guildState
 
-	// map[passwords] = session
+	// map[passwords] -> session id
 	pwValidation map[string]string
 }
+
+var ErrSessionExists = errors.New("session already exists")
 
 func (s *Sessions) Confirm(pw string, m *discordgo.MessageCreate,
 	msg func(msg string) error, joinVoice func() (*discordgo.VoiceConnection, error)) error {
@@ -55,21 +156,25 @@ func (s *Sessions) Confirm(pw string, m *discordgo.MessageCreate,
 	defer s.Unlock()
 
 	// TODO: Add max pw inputs
-
 	session, exists := s.pwValidation[pw]
 	if !exists {
-		// XXX: DEBUG
-		log.Println(pw, s.states, s.pwValidation)
 		return errors.New("invalid password")
 	}
 
 	delete(s.pwValidation, pw)
 
 	state := s.states[session]
+	if state.confirmed {
+		// Confirmation logic will change soon but maybe we should allow
+		// multiple ones.
+		return ErrSessionExists
+	}
 
 	state.confirmed = true
 	state.msg = msg
 	state.joinVoice = joinVoice
+
+	s.discordToState[m.ChannelID] = session
 
 	return nil
 }
@@ -87,14 +192,12 @@ func (s *Sessions) Validate(id string) bool {
 	defer s.Unlock()
 
 	state, exists := s.states[id]
-	if !exists {
-		return false
-	}
-
-	return state.confirmed
+	return exists && state.confirmed
 }
 
 func (s *Sessions) GetState(id string) (*guildState, error) {
+	s.Lock()
+	defer s.Unlock()
 	state, exists := s.states[id]
 	if !exists {
 		return nil, errors.New("invalid id")
@@ -107,16 +210,18 @@ func (s *Sessions) GetState(id string) (*guildState, error) {
 	return state, nil
 }
 
+func (s *Sessions) StateFromDiscord(id string) (*guildState, error) {
+	sid := s.discordToState[id]
+	return s.GetState(sid)
+}
+
 func (s *Sessions) SetPlaylist(id, url string) error {
-	s.Lock()
 	state, err := s.GetState(id)
 	if err != nil {
 		return err
 	}
-	s.Unlock()
 
 	state.SetPlaylist(url)
-
 	return nil
 }
 
@@ -126,9 +231,10 @@ func genPassword(ongoingSessions *Sessions) string {
 }
 
 func (s *Sessions) Password(id string) string {
+	// Don't use GetState, since in that function we're confirming.
 	state, exists := s.states[id]
 	if !exists {
-		state = &guildState{p: NewPlayer()}
+		state = newGuildState()
 	}
 
 	if state.password == "" {

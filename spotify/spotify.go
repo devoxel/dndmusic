@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -80,8 +81,24 @@ func (s *Client) GetPlaylist(url string) (*FullPlaylist, error) {
 	id := strings.TrimPrefix(url, "open.spotify.com/playlist/")
 
 	playlistURL := fmt.Sprintf(URL, id)
+	log.Printf("getting: %v", playlistURL)
 
 	pl := &FullPlaylist{}
+	if err := s.get(playlistURL, pl); err != nil {
+		return nil, err
+	}
+
+	return pl, nil
+}
+
+// GetUserPlaylists gets all Spotify playlist for a specific user
+func (s *Client) GetUserPlaylists(id string) (*SimplePlaylistPage, error) {
+	const URL = "https://api.spotify.com/v1/users/%s/playlists"
+
+	playlistURL := fmt.Sprintf(URL, id)
+	log.Printf("getting: %v", playlistURL)
+
+	pl := &SimplePlaylistPage{}
 	if err := s.get(playlistURL, pl); err != nil {
 		return nil, err
 	}

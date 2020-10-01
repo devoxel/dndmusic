@@ -6,7 +6,7 @@ function InvalidSession(props) {
     <header className="InvalidSession-header">
       <div className="InvalidSession">
         <p>
-          Your password is:
+          Your password is:&nbsp;
             <span className="InvalidSession-password">
               {props.password}
             </span>

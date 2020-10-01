@@ -22,12 +22,14 @@ var (
 	runningDir    string
 	spotifyID     string
 	spotifySecret string
+	videoDir      string
 )
 
 func init() {
 	flag.StringVar(&token, "t", "", "discord bot auth token")
 	flag.StringVar(&spotifyID, "spotify-id", "", "spotify id")
 	flag.StringVar(&spotifySecret, "spotify-secret", "", "spotify secret")
+	flag.StringVar(&videoDir, "video-dir", ".", "video-directory")
 	flag.IntVar(&port, "p", 8080, "port to run the discord bot")
 	flag.StringVar(&runningDir, "d", "", "running directory")
 }
@@ -54,7 +56,6 @@ func initBot(ongoingSessions *Sessions) *discordgo.Session {
 	if err = dg.Open(); err != nil {
 		log.Fatal("cannot init websocket:", err)
 	}
-	log.Println("initalized discord bot")
 
 	return dg
 }
@@ -62,37 +63,52 @@ func initADM() {
 	// XXX: dirty global
 	adm = &AudioDownloadManager{
 		// XXX: AudioDownloadManager could sync cache from file tree.
-		cache: map[string]Playlist{},
-		s:     &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
+		passiveDL: make(chan []Track),
+		cache:     map[string]Playlist{},
+		tcache:    map[string]Track{},
+		s:         &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
 	}
-	adm.readCache()
+
+	if err := adm.s.Authorize(); err != nil {
+		log.Fatalf("cannot init spotify client: %v", err)
+	}
+
+	if err := adm.readCache(); err != nil {
+		log.Fatal(err)
+	}
+
+	go adm.PassiveDownload()
 }
 
 func main() {
 	flag.Parse()
 	rand.Seed(time.Now().Unix())
+
+	log.Println("starting bot ...") // XXX: Debug
+
 	initADM()
 
-	if err := adm.s.Authorize(); err != nil {
-		log.Fatalf("cannot init spotify client: %v", err)
-	}
+	log.Println("adm started ...") // XXX: Debug
 
 	if token == "" {
 		log.Fatal("no token provided")
 	}
 
 	ongoingSessions := &Sessions{
-		states:       map[string]*guildState{},
-		pwValidation: map[string]string{},
+		states:         map[string]*guildState{},
+		pwValidation:   map[string]string{},
+		discordToState: map[string]string{},
 	}
 
 	dg := initBot(ongoingSessions)
+
+	log.Println("discord initalized ...") // XXX: Debug
 	handlerInit(ongoingSessions)
 
 	sc := make(chan os.Signal, 1)
 
 	go func() {
-		log.Print("hosting web server on port: ", port)
+		log.Printf("hosting web server on port: %v ...", port)
 		if err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", port), nil); err != nil {
 			log.Fatal("error hosting server: ", err)
 		}

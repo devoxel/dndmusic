@@ -277,6 +277,12 @@ type SimplePlaylist struct {
 	URI    URI            `json:"uri"`
 }
 
+// SimplePlaylistPage contains SimplePlaylists returned by the Web API.
+type SimplePlaylistPage struct {
+	basePage
+	Playlists []SimplePlaylist `json:"items"`
+}
+
 // FullPlaylist provides extra playlist data in addition to the data provided by SimplePlaylist.
 type FullPlaylist struct {
 	SimplePlaylist

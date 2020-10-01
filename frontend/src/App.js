@@ -6,20 +6,6 @@ import ValidSession from './ValidSession.js';
 
 const socket = new WebSocket("wss://sb.invalidsyn.tax/ws");
 
-const Footer = () => {
-  return (
-    <div className="Footer">
-      <a
-        href="https://remindmetowritedocs.invalidtld"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        ?
-      </a>
-    </div>
-  );
-}
-
 class App extends React.Component {
   constructor(props) {
     super(props);
@@ -31,7 +17,13 @@ class App extends React.Component {
   }
 
   componentDidMount() {
-    this.setState({ password: "" });
+    this.setState({
+      password: "",
+      validated: false,
+      playlists: [],
+      playing: "",
+      current_playlist: [],
+    });
 
     socket.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
@@ -53,12 +45,16 @@ class App extends React.Component {
         }
 
         console.log("ws: Verified"); // XXX: DEBUG
+
+        const playing = 'playing' in msg ? msg.playing : "";
+        const cplaylist = 'current_playlist' in msg ? msg.current_playlist : [];
+
         this.setState({
           password: "Verified!",
           validated: true,
           playlists: msg.playlists,
-          playing: msg.playing,
-          current_playist: msg.current_playlist,
+          playing: playing,
+          current_playlist: cplaylist,
         });
       }
 
@@ -107,16 +103,28 @@ class App extends React.Component {
     socket.send(toSend);
   }
 
+  handleSkip() {
+    const msg = { 'message': 'MusicSkip' };
+    const toSend = JSON.stringify(msg);
+    socket.send(toSend);
+  }
+
   render() {
     let comp = <InvalidSession password={this.state.password}/>
     if (this.state.validated) {
-      comp = <ValidSession handlePlaylist={this.handlePlaylist} playlists={this.state.playlists} />
+      comp = <ValidSession
+        handlePlaylist={this.handlePlaylist}
+        handleSkip={this.handleSkip}
+
+        playlists={this.state.playlists}
+        playing={this.state.playing}
+        current_playlist={this.state.current_playlist}
+      />
     }
 
     return (
       <div className="App">
         { comp }
-        < Footer />
       </div>
     );
   }

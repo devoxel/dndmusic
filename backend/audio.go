@@ -10,21 +10,27 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/devoxel/dndmusic/spotify"
-	"github.com/jonas747/dca"
+	"github.com/jonas747/ogg"
 )
 
 type Track struct {
-	Name   string
-	Artist string
-	Path   string
+	Name   string `json:"name,omitempty"`
+	Artist string `json:"artist,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
-type Playlist []*Track
+func (t Track) ID() string {
+	// XXX: Change once we allow tracks indexed by youtube URL
+	return t.Name + "_" + t.Artist
+}
+
+type Playlist []Track
 
 func (p Playlist) Shuffle() {
 	rand.Shuffle(len(p), func(i, j int) {
@@ -37,7 +43,42 @@ type AudioDownloadManager struct {
 
 	// playlist cache
 	cache map[string]Playlist
-	s     *spotify.Client
+
+	// cache tracks by mapping the tracks UID to a track that contains the
+	// file path of that track
+	tcache map[string]Track
+
+	passiveDL chan []Track
+
+	s *spotify.Client
+}
+
+func writeJSON(path string, t interface{}) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	e := json.NewEncoder(f)
+	e.SetIndent("", "\t") // XXX Debug
+	if err := e.Encode(t); err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+func loadJSON(path string, t interface{}) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+
+	d := json.NewDecoder(f)
+	if err := d.Decode(t); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // flush cache to disk. don't hotload or anything fancy. eventually we could
@@ -46,37 +87,39 @@ func (adm *AudioDownloadManager) flushCache() error {
 	adm.Lock()
 	defer adm.Unlock()
 
-	f, err := os.Create("./discordCache")
-	if err != nil {
-		return err
+	// XXX Bad name for this
+	if err := writeJSON("discordCache", &adm.cache); err != nil {
+		return fmt.Errorf("writeJSON(discordCache): %w", err)
 	}
 
-	e := json.NewEncoder(f)
-	e.SetIndent("", "\t") // XXX Debug
-	if err := e.Encode(&adm.cache); err != nil {
-		return err
+	// XXX: different directory
+	if err := writeJSON(fmt.Sprintf("%s/videoCache", videoDir), &adm.tcache); err != nil {
+		return fmt.Errorf("writeJSON(videoCache): %w", err)
 	}
 
 	return nil
 }
 
 func (adm *AudioDownloadManager) readCache() error {
-	f, err := os.Open("./discordCache")
-	if os.IsNotExist(err) {
-		return adm.flushCache()
-	} else if err != nil {
-		return err
-	}
-
-	d := json.NewDecoder(f)
-
 	adm.Lock()
-	defer adm.Unlock()
-	if err := d.Decode(&adm.cache); err != nil {
-		return err
+
+	if err := loadJSON("discordCache", &adm.cache); err != nil {
+		if !os.IsNotExist(err) {
+			adm.Unlock()
+			return fmt.Errorf("loadJSON(discordCache): %w", err)
+		}
 	}
 
-	return nil
+	if err := loadJSON(fmt.Sprintf("%s/videoCache", videoDir), &adm.tcache); err != nil {
+		if !os.IsNotExist(err) {
+			adm.Unlock()
+			return fmt.Errorf("loadJSON(videoCache): %w", err)
+		}
+	}
+
+	adm.Unlock()
+
+	return adm.flushCache()
 }
 
 func (adm *AudioDownloadManager) DownloadPlaylist(url string) (Playlist, error) {
@@ -95,11 +138,11 @@ func (adm *AudioDownloadManager) DownloadPlaylist(url string) (Playlist, error) 
 	adm.Unlock()
 
 	page := pl.Tracks
-	tracks := []*Track{}
+	tracks := []Track{}
 
 	for {
 		for _, t := range page.Tracks {
-			tracks = append(tracks, &Track{t.Track.Name, t.Track.Artists[0].Name, ""})
+			tracks = append(tracks, Track{t.Track.Name, t.Track.Artists[0].Name, ""})
 		}
 
 		err = adm.s.NextPage(&page)
@@ -117,29 +160,44 @@ func (adm *AudioDownloadManager) DownloadPlaylist(url string) (Playlist, error) 
 
 }
 
-func (adm *AudioDownloadManager) DownloadTrack(track *Track) error {
+func urlescape(s string) string {
+	// XXX: could be more effecient, i'm lazy though
+	s = strings.ReplaceAll(s, ":", "")
+	s = strings.ReplaceAll(s, "/", "")
+	return s
+}
+
+func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 	if track.Path != "" {
-		fmt.Println("using track cache")
-		return nil
+		return Track{}, errors.New("DownloadTrack: attempting to download track with path info")
 	}
+
+	adm.Lock()
+	if t, exists := adm.tcache[track.ID()]; exists {
+		// Got a valid track in cache.
+		adm.Unlock()
+		return t, nil
+	}
+	adm.Unlock()
 
 	id, err := tmpFileName([]string{"3gp", "aac", "flv", "m4a", "mp3", "mp4", "ogg", "wav", " webm"})
 	if err != nil {
-		return err
+		return Track{}, err
 	}
 
 	args := []string{
 		"-o",
-		fmt.Sprintf("%s.%%(ext)s", id),
+		fmt.Sprintf("%s/%s.%%(ext)s", videoDir, id),
 		"--restrict-filenames",
 		"-x",
+		"--cookies", "cookies.txt",
 		"--audio-format", "opus",
 		"--socket-timeout", "10",
 		"--default-search", "auto",
 		"--no-playlist",
 		"--no-call-home",
 		"--no-progress",
-		fmt.Sprintf("%s - %s", track.Name, track.Artist),
+		urlescape(fmt.Sprintf("%s - %s", track.Name, track.Artist)),
 	}
 
 	cmd := exec.Command("/usr/local/bin/youtube-dl", args...)
@@ -152,24 +210,78 @@ func (adm *AudioDownloadManager) DownloadTrack(track *Track) error {
 		}
 		fmt.Println(string(out)) // XXX
 		fmt.Println(err)
-		return fmt.Errorf("error downloading track")
+		return Track{}, fmt.Errorf("error downloading track")
 	}
 	fmt.Println("youtube-dl output: ", string(out)) // XXX
 
-	filename := fmt.Sprintf("%s.opus", id)
+	filename := fmt.Sprintf("%s/%s.opus", videoDir, id)
 
 	// Validate file exists
 	_, err = os.Stat(filename)
 	if err != nil {
-		return err
+		return Track{}, err
 	}
+	track.Path = filename
 
 	adm.Lock()
-	track.Path = filename
+	adm.tcache[track.ID()] = track
 	adm.Unlock()
-	adm.flushCache()
 
-	return nil
+	adm.flushCache() // XXX: Don't flush cache every iteration.
+
+	return track, nil
+}
+
+func (adm *AudioDownloadManager) QueueTracksForPassiveDownload(tracks []Track) {
+	adm.passiveDL <- tracks
+}
+
+func randDuration() time.Duration {
+	return time.Duration(rand.Intn(30)+1) * time.Second
+}
+
+func (adm *AudioDownloadManager) PassiveDownload() {
+	downloadQueue := []Track{}
+	timer := time.NewTimer(randDuration())
+
+	for {
+		select {
+		case tracks := <-adm.passiveDL:
+			// XXX do this without reallocating
+			downloadQueue = append(tracks, downloadQueue...)
+		case <-timer.C:
+			/* pop off queue until we get a non downloaded track */
+			var poppedTrack bool
+			var track Track
+
+			for len(downloadQueue) > 0 {
+				track = downloadQueue[0]
+				downloadQueue = downloadQueue[1:]
+				log.Printf("handling passive download: %s.\t%d left", track, len(downloadQueue))
+
+				adm.Lock()
+				id := track.ID()
+				if _, exists := adm.tcache[id]; exists {
+					adm.Unlock()
+					continue
+				}
+				adm.Unlock()
+
+				poppedTrack = true
+				break
+			}
+
+			timer.Reset(randDuration())
+			if !poppedTrack {
+				break
+			}
+
+			if _, err := adm.DownloadTrack(track); err != nil {
+				// XXX: remove erroring tracks from the list as a bandaid.
+				log.Printf("PassiveDownload failed: %w", err)
+			}
+		}
+	}
 }
 
 func tmpFileName(prefixes []string) (string, error) {
@@ -205,8 +317,9 @@ type Player struct {
 	playing         int
 	playlist        Playlist
 
-	playerOn    bool
-	playerReset chan struct{}
+	playerOn  bool
+	sigReload chan struct{}
+	sigSkip   chan struct{}
 }
 
 func NewPlayer() *Player {
@@ -215,15 +328,16 @@ func NewPlayer() *Player {
 
 func (p *Player) SetPlaylist(url string) error {
 	p.Lock()
-	defer p.Unlock()
 
 	// Check if we're currently playlist this playlist, if so, bounce.
 	if p.currentPlaylist == url {
+		p.Unlock()
 		return nil
 	}
 
 	pl, err := adm.DownloadPlaylist(url)
 	if err != nil {
+		p.Unlock()
 		return err
 	}
 
@@ -236,34 +350,72 @@ func (p *Player) SetPlaylist(url string) error {
 	p.playlist = pl
 
 	if p.playerOn {
-		p.playerReset <- struct{}{}
+		fmt.Println("sent reload") // XXX DEBUG
+		p.sigReload <- struct{}{}
 	}
+
+	p.Unlock()
+
+	adm.QueueTracksForPassiveDownload(pl[1:])
 
 	return nil
 }
 
-func (p *Player) DownloadCurrent() error {
+func (p *Player) Playing() (Track, []Track) {
 	p.Lock()
 	defer p.Unlock()
-	return adm.DownloadTrack(p.playlist[p.playing])
+
+	if !p.playerOn {
+		return Track{}, []Track{}
+	}
+
+	if len(p.playlist) == 0 {
+		log.Println("playing with 0 length playlist??")
+		return Track{}, []Track{}
+	}
+
+	c := p.playlist[p.playing]
+	return Track{Name: c.Name, Artist: c.Artist}, p.playlist
+}
+
+func (p *Player) DownloadCurrent() (Track, error) {
+	p.Lock()
+	t := p.playlist[p.playing]
+	p.Unlock()
+
+	return adm.DownloadTrack(t)
+}
+
+func (p *Player) Skip() {
+	p.sigSkip <- struct{}{}
 }
 
 func (p *Player) StartPlayLoop(msg func(msg string) error, joinVoice func() (voice *discordgo.VoiceConnection, err error)) {
+	fmt.Println("StartPlayLoop(): starting...") // XXX DEBUG
+
 	p.Lock()
 	defer p.Unlock()
 	if p.playerOn {
 		return
 	}
 
-	p.playerReset = make(chan struct{})
+	p.sigReload = make(chan struct{})
+	p.sigSkip = make(chan struct{})
+
 	p.playerOn = true
+
+	fmt.Println("StartPlayLoop(): loops on b") // XXX DEBUG
 	go p.PlayLoop(msg, joinVoice)
 }
 
 func (p *Player) PlayLoop(msg func(msg string) error, joinVoice func() (voice *discordgo.VoiceConnection, err error)) {
+	/* XXX
+	This function needs to be split up and managed properly.
+	Right now it does everything.
+	*/
 	defer func() {
 		p.Lock()
-		p.playerReset = nil
+		p.sigReload = nil
 		p.playerOn = false
 		p.Unlock()
 	}()
@@ -306,25 +458,28 @@ Loop:
 			p.Unlock()
 		}
 
-		if err := p.DownloadCurrent(); err != nil {
+		// XXX: A lot of functions here mutate stuff.
+		//
+		// We should download audio ahead of time too, DownloadCurrent should
+		// communicate to a global youtube downloader worker pool, which will
+		// prioritize the current song and add the rest as to download.
+		//
+		// Really I need to design a SANE way of handling all these threads together.
+		// This function is handling both the audio control & the playback.
+
+		track, err := p.DownloadCurrent()
+		if err != nil {
 			handleErr(err)
 			return
 		}
 
-		track := p.playlist[p.playing]
 		f, err := os.Open(track.Path)
 		if err != nil {
 			handleErr(err)
 			return
 		}
 
-		/* dec := ogg.NewDecoder(f) */
-		dec, err := dca.EncodeMem(f, dca.StdEncodeOptions)
-		if err != nil {
-			f.Close()
-			handleErr(err)
-			return
-		}
+		dec := ogg.NewPacketDecoder(ogg.NewDecoder(f))
 
 		if err := conn.Speaking(true); err != nil {
 			f.Close()
@@ -334,49 +489,23 @@ Loop:
 
 		time.Sleep(250 * time.Millisecond)
 
+		// Account for the ID & comment header
+		// See https://wiki.xiph.org/index.php?title=OggOpus.
+		//
+		// NOTE: If i want to calculate time into song we need to read this,
+		// find pre-skip time & use that and granule data to calculate
+		// PCM samples (seeking to the end of the song). Maybe its better to
+		// set a timer based on the download length 5Head.
+
+		skip := 2
 	EncodeLoop:
 		for {
-			/*
-				page, err := dec.Decode()
+			packet, _, err := dec.Decode()
+			if skip > 0 {
+				skip--
+				continue
+			}
 
-				if err != nil && err == io.EOF {
-					fmt.Println("play-debug: EOF") // XXX
-					break
-				} else if err != nil {
-					f.Close()
-					handleErr(err)
-					return
-				}
-
-				bos := page.Type&ogg.BOS == 1
-				fmt.Println("play-debug: bos=", bos) // XXX
-
-				if bos && reading == 0xFF {
-					reading = page.Serial
-					fmt.Println("play-debug: reading ", reading) // XXX
-					continue
-				} else if bos {
-					f.Close()
-					handleErr(errors.New("unable to handle multiple ogg streams"))
-					return
-				}
-
-				cop := page.Type&ogg.COP == 1
-				if cop || len(packet) == 0 {
-					fmt.Println("cop")
-					packet = append(page.Packet) // XXX: don't reallocate
-				} else if len(packet) > 0 {
-					fmt.Println("flushing packet") //XXX
-					conn.OpusSend <- packet
-					packet = []byte{} // XXX: don't reallocate
-				}
-
-				if page.Type&ogg.EOS == 1 {
-					fmt.Println("EOS") // XXX
-					break
-				}
-			*/
-			frame, err := dec.OpusFrame()
 			if err != nil && err != io.EOF {
 				f.Close()
 				handleErr(fmt.Errorf("error decoding opus frame: %w", err))
@@ -391,20 +520,19 @@ Loop:
 			}
 
 			select {
-			case <-p.playerReset:
+			case <-p.sigReload:
 				break EncodeLoop
-			case conn.OpusSend <- frame:
+			case <-p.sigSkip:
+				p.Lock()
+				p.playing += 1
+				p.Unlock()
+				break EncodeLoop
+			case conn.OpusSend <- packet:
 			case <-time.After(time.Second):
 				// We haven't been able to send a frame in a second, assume the connection is borked
 				handleErr(errors.New("discord connection borked"))
 				return
 			}
-		}
-
-		if err := dec.Stop(); err != nil {
-			f.Close()
-			handleErr(err)
-			return
 		}
 
 		if err := conn.Speaking(false); err != nil {
