@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -42,11 +43,7 @@ func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.Messag
 
 	switch cmd[0] {
 	case "create":
-		if len(cmd) < 2 {
-			s.sendErrorMsg(ds, m, errors.New("you need to enter a password dingus"))
-			return
-		}
-		s.handleCreate(ds, m, cmd[1])
+		s.handleCreate(ds, m)
 	case "skip":
 		s.handleSkip(ds, m)
 	case "add":
@@ -67,7 +64,7 @@ func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.Messag
 }
 
 func (s *DiscordServer) handleAdd(ds *discordgo.Session, m *discordgo.MessageCreate, pl WSPlaylist) {
-	gs, err := s.sessions.StateFromDiscord(m.ChannelID)
+	gs, err := s.sessions.FromGuild(m.GuildID)
 	if err != nil {
 		s.sendErrorMsg(ds, m, err)
 		return
@@ -80,7 +77,7 @@ func (s *DiscordServer) handleAdd(ds *discordgo.Session, m *discordgo.MessageCre
 }
 
 func (s *DiscordServer) handleDelete(ds *discordgo.Session, m *discordgo.MessageCreate, pl WSPlaylist) {
-	gs, err := s.sessions.StateFromDiscord(m.ChannelID)
+	gs, err := s.sessions.FromGuild(m.GuildID)
 	if err != nil {
 		s.sendErrorMsg(ds, m, err)
 		return
@@ -116,7 +113,7 @@ func (s *DiscordServer) getSenderCID(ds *discordgo.Session, m *discordgo.Message
 	return "", errors.New("You can't create a session if you're not in a voice channel")
 }
 
-func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.MessageCreate, pw string) {
+func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.MessageCreate) {
 	sendMsg := func(msg string) error {
 		_, err := ds.ChannelMessageSend(m.ChannelID, msg)
 		return err
@@ -131,19 +128,21 @@ func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.Message
 		return ds.ChannelVoiceJoin(m.GuildID, cid, false, true)
 	}
 
-	if err := s.sessions.Confirm(pw, m, sendMsg, joinVoice); err != nil {
-		if err == ErrSessionExists {
-			// XXX: this is a major issue.
-			sendMsg("session in progress, currently only one session per discord.")
-		} else {
-			s.sendErrorMsg(ds, m, err)
-		}
-		return
+	fmt.Println("createing sessions")
+	sessionToken, err := s.sessions.Create(m, sendMsg, joinVoice)
+	if err != nil {
+		s.sendErrorMsg(ds, m, err)
 	}
+
+	fmt.Println(sessionToken)
+
+	hi := "join here: "
+	sendMsg(fmt.Sprintf("%s https://sb.invalidsyn.tax/?s=%s", hi, sessionToken))
+
 }
 
 func (s *DiscordServer) handleSkip(ds *discordgo.Session, m *discordgo.MessageCreate) {
-	gs, err := s.sessions.StateFromDiscord(m.ChannelID)
+	gs, err := s.sessions.FromGuild(m.GuildID)
 	if err != nil {
 		s.sendErrorMsg(ds, m, err)
 		return

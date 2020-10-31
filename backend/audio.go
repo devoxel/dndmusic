@@ -189,6 +189,7 @@ func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 		"-o",
 		fmt.Sprintf("%s/%s.%%(ext)s", videoDir, id),
 		"--restrict-filenames",
+		"--user-agent", "Mozilla/5.0 (Windows NT 5.1; rv:36.0) Gecko/20100101 Firefox/36.0",
 		"-x",
 		"--cookies", "cookies.txt",
 		"--audio-format", "opus",
@@ -201,6 +202,7 @@ func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 	}
 
 	cmd := exec.Command("/usr/local/bin/youtube-dl", args...)
+	cmd.Dir = workingDir
 	fmt.Println(cmd) // XXX DEBUG
 
 	out, err := cmd.Output()
@@ -237,7 +239,12 @@ func (adm *AudioDownloadManager) QueueTracksForPassiveDownload(tracks []Track) {
 }
 
 func randDuration() time.Duration {
-	return time.Duration(rand.Intn(30)+1) * time.Second
+	min := time.Duration(60)
+	rand := time.Duration(rand.Intn(480)+1) * time.Second
+	if rand < min {
+		return min
+	}
+	return rand
 }
 
 func (adm *AudioDownloadManager) PassiveDownload() {
@@ -257,7 +264,7 @@ func (adm *AudioDownloadManager) PassiveDownload() {
 			for len(downloadQueue) > 0 {
 				track = downloadQueue[0]
 				downloadQueue = downloadQueue[1:]
-				log.Printf("handling passive download: %s.\t%d left", track, len(downloadQueue))
+				log.Printf("PassiveDownload: handling passive download: %s.\t%d left", track, len(downloadQueue))
 
 				adm.Lock()
 				id := track.ID()
@@ -271,7 +278,9 @@ func (adm *AudioDownloadManager) PassiveDownload() {
 				break
 			}
 
-			timer.Reset(randDuration())
+			d := randDuration()
+			fmt.Println("PassiveDownload: next wait duration: %v", d)
+			timer.Reset(d)
 			if !poppedTrack {
 				break
 			}

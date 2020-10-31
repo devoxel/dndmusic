@@ -138,8 +138,8 @@ func (gs *guildState) RemovePlaylist(match WSPlaylist) error {
 type Sessions struct {
 	sync.Mutex
 
-	// map[discordSessionID] -> session id
-	discordToState map[string]string
+	// map[guild id] -> session id
+	guildLookup map[string]string
 
 	// map[session id] -> state
 	states map[string]*guildState
@@ -150,33 +150,45 @@ type Sessions struct {
 
 var ErrSessionExists = errors.New("session already exists")
 
-func (s *Sessions) Confirm(pw string, m *discordgo.MessageCreate,
-	msg func(msg string) error, joinVoice func() (*discordgo.VoiceConnection, error)) error {
+func (s *Sessions) Create(m *discordgo.MessageCreate,
+	msg func(msg string) error, joinVoice func() (*discordgo.VoiceConnection, error)) (string, error) {
 	s.Lock()
 	defer s.Unlock()
 
-	// TODO: Add max pw inputs
-	session, exists := s.pwValidation[pw]
-	if !exists {
-		return errors.New("invalid password")
+	gid := m.GuildID
+	sid, ok := s.guildLookup[gid]
+	if !ok {
+		sid = genPassword(s)
+		state := newGuildState()
+		// create guildState
+		s.states[sid] = state
+		s.guildLookup[gid] = sid
 	}
 
-	delete(s.pwValidation, pw)
-
-	state := s.states[session]
-	if state.confirmed {
-		// Confirmation logic will change soon but maybe we should allow
-		// multiple ones.
-		return ErrSessionExists
+	state, ok := s.states[sid]
+	if !ok {
+		return "", errors.New("Create: no corresponding guild state for session id " + sid)
 	}
 
 	state.confirmed = true
 	state.msg = msg
 	state.joinVoice = joinVoice
 
-	s.discordToState[m.ChannelID] = session
+	return sid, nil
+}
 
-	return nil
+func (s *Sessions) FromGuild(gid string) (*guildState, error) {
+	sid, ok := s.guildLookup[gid]
+	if !ok {
+		return nil, errors.New("start a session first")
+	}
+
+	state, ok := s.states[sid]
+	if !ok {
+		return nil, errors.New("FromGuild: no corresponding guild state for session id " + sid)
+	}
+
+	return state, nil
 }
 
 func (s *Sessions) Exists(id string) bool {
@@ -210,11 +222,6 @@ func (s *Sessions) GetState(id string) (*guildState, error) {
 	return state, nil
 }
 
-func (s *Sessions) StateFromDiscord(id string) (*guildState, error) {
-	sid := s.discordToState[id]
-	return s.GetState(sid)
-}
-
 func (s *Sessions) SetPlaylist(id, url string) error {
 	state, err := s.GetState(id)
 	if err != nil {
@@ -226,26 +233,7 @@ func (s *Sessions) SetPlaylist(id, url string) error {
 }
 
 func genPassword(ongoingSessions *Sessions) string {
+	// XXX make unique.
 	pwi := rand.Intn(899998)
 	return strconv.Itoa(pwi + 100000)
-}
-
-func (s *Sessions) Password(id string) string {
-	// Don't use GetState, since in that function we're confirming.
-	state, exists := s.states[id]
-	if !exists {
-		state = newGuildState()
-	}
-
-	if state.password == "" {
-		state.password = genPassword(s)
-	}
-
-	s.Lock()
-	defer s.Unlock()
-
-	s.pwValidation[state.password] = id
-	s.states[id] = state
-
-	return state.password
 }

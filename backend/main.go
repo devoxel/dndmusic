@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -23,6 +24,7 @@ var (
 	spotifyID     string
 	spotifySecret string
 	videoDir      string
+	workingDir    string
 )
 
 func init() {
@@ -30,6 +32,7 @@ func init() {
 	flag.StringVar(&spotifyID, "spotify-id", "", "spotify id")
 	flag.StringVar(&spotifySecret, "spotify-secret", "", "spotify secret")
 	flag.StringVar(&videoDir, "video-dir", ".", "video-directory")
+	flag.StringVar(&workingDir, "working-dir", ".", "working-directory")
 	flag.IntVar(&port, "p", 8080, "port to run the discord bot")
 	flag.StringVar(&runningDir, "d", "", "running directory")
 }
@@ -42,6 +45,13 @@ func validatePassword(pw string) error {
 		return errors.New("session password can not be longer than 32 characters")
 	}
 	return nil
+}
+
+func validateWorkingDir() {
+	_, err := ioutil.ReadFile(workingDir + "/cookies.txt")
+	if err != nil {
+		log.Fatal("no cookies file in working dir")
+	}
 }
 
 func initBot(ongoingSessions *Sessions) *discordgo.Session {
@@ -82,6 +92,7 @@ func initADM() {
 
 func main() {
 	flag.Parse()
+	validateWorkingDir()
 	rand.Seed(time.Now().Unix())
 
 	log.Println("starting bot ...") // XXX: Debug
@@ -95,9 +106,8 @@ func main() {
 	}
 
 	ongoingSessions := &Sessions{
-		states:         map[string]*guildState{},
-		pwValidation:   map[string]string{},
-		discordToState: map[string]string{},
+		states:      map[string]*guildState{},
+		guildLookup: map[string]string{},
 	}
 
 	dg := initBot(ongoingSessions)

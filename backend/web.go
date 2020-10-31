@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorilla/sessions"
 	"github.com/gorilla/websocket"
 )
 
@@ -31,34 +30,11 @@ func writeError(where string, w http.ResponseWriter, r *http.Request, err error,
 	http.Error(w, err.Error(), c)
 }
 
-func identityHandler(ongoingSessions *Sessions,
-	cookieSession *sessions.Session, r *http.Request) (string, error) {
-	// Current UserID Session
-	id, exists := cookieSession.Values["id"]
-	if !exists {
-		id = genSessionID(ongoingSessions)
-		cookieSession.Values["id"] = id
-		log.Printf("new user, creating id: %v", id)
-	}
-
-	sid, valid := id.(string)
-	if !valid {
-		log.Printf("invalid cookie session: got %v", sid)
-		sid = genSessionID(ongoingSessions)
-		cookieSession.Values["id"] = sid
-	}
-
-	return sid, nil
-}
-
 type wsMsg struct {
 	Message string `json:"message"`
 
 	// StatusCheck
-	Status string `json:"status,omitempty"`
-	// StatusCheck [Invalidated]
-	Password string `json:"password,omitempty"`
-	// StatusCheck [Validated]
+	Status           string       `json:"status,omitempty"`
 	Playlists        []WSPlaylist `json:"playlists,omitempty"`
 	CurrentlyPlaying Track        `json:"playing,omitempty"`
 	CurrentPlaylist  []Track      `json:"current_playlist,omitempty"`
@@ -89,9 +65,8 @@ func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, e
 	}
 
 	return wsMsg{
-		Message:  "StatusCheckResponse",
-		Status:   "Unverified",
-		Password: ongoingSessions.Password(id),
+		Message: "StatusCheckResponse",
+		Status:  "Unverified",
 	}, nil
 }
 
@@ -181,13 +156,6 @@ func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 		var res wsMsg
 
 		switch {
-		case !ongoingSessions.Validate(id): // XXX
-			res, err = wsInvalidSession(ongoingSessions, id, req)
-			if err != nil {
-				log.Printf("readLoop: InvalidSession: %v", err)
-				c.Close()
-				return
-			}
 		case req.Message == "StatusCheck":
 			res, err = wsStatusCheck(ongoingSessions, id, req)
 			if err != nil {
@@ -237,31 +205,21 @@ func websocketHandler(ongoingSessions *Sessions) func(w http.ResponseWriter, r *
 		CheckOrigin:     func(r *http.Request) bool { return true }, // XXX DEBUG
 	}
 
-	// XXX: change secret key
-	store := sessions.NewCookieStore([]byte("asdfasdf"))
-
 	return func(w http.ResponseWriter, r *http.Request) {
-		// XXX DBEUG spew.Dump(r.Header)
-		cookieSession, _ := store.Get(r, "session-name")
-
-		id, err := identityHandler(ongoingSessions, cookieSession, r)
-		if err != nil {
-			writeError("/ws", w, r, fmt.Errorf("couldn't save session: %w", err), 500)
+		q := r.URL.Query()
+		param, ok := q["s"]
+		if !ok || len(param) != 1 || param[0] == "" {
+			writeError("/ws", w, r, fmt.Errorf("no session id:"), 500)
 			return
 		}
 
-		// identityHandler will save the new ID, so save it to the HTTP in case of user reloading.
-		if err := cookieSession.Save(r, w); err != nil {
-			writeError("/ws", w, r, fmt.Errorf("couldn't save session: %w", err), 500)
-		}
+		id := param[0]
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			writeError("ws", w, r, err, 500)
 			return
 		}
-
-		fmt.Println("upgraded")
 
 		readLoop(conn, id, ongoingSessions)
 	}

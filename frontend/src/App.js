@@ -4,13 +4,15 @@ import './App.css';
 import InvalidSession from './InvalidSession.js';
 import ValidSession from './ValidSession.js';
 
-const socket = new WebSocket("wss://sb.invalidsyn.tax/ws");
+const urlParams = new URLSearchParams(window.location.search);
+const session = urlParams.get('s');
+
+const socket = new WebSocket("wss://sb.invalidsyn.tax/ws?s=" + session);
 
 class App extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      password: "",
       validated: false,
       playlists: null,
     }
@@ -18,7 +20,6 @@ class App extends React.Component {
 
   componentDidMount() {
     this.setState({
-      password: "",
       validated: false,
       playlists: [],
       playing: "",
@@ -30,27 +31,12 @@ class App extends React.Component {
       console.log("ws: message: ", msg);
 
       if (msg.message === "StatusCheckResponse") {
-        /*
-        if (!validStatusCheckResponse(msg)) {
-          // TODO: handle errors
-          return
-        }
         console.log("ws: StatusCheckResponse"); // XXX: DEBUG
-        */
-
-        if (msg.status === "Unverified") {
-          console.log("unverified"); // XXX: DEBUG
-          this.setState({ password: msg.password });
-          return
-        }
-
-        console.log("ws: Verified"); // XXX: DEBUG
 
         const playing = 'playing' in msg ? msg.playing : "";
         const cplaylist = 'current_playlist' in msg ? msg.current_playlist : [];
 
         this.setState({
-          password: "Verified!",
           validated: true,
           playlists: msg.playlists,
           playing: playing,
@@ -110,7 +96,7 @@ class App extends React.Component {
   }
 
   render() {
-    let comp = <InvalidSession password={this.state.password}/>
+    let comp = <InvalidSession />
     if (this.state.validated) {
       comp = <ValidSession
         handlePlaylist={this.handlePlaylist}
