@@ -9,6 +9,6 @@ then
 	cd ..
 fi
 
-go run ./backend -t $DISCORD_TOKEN -p 1337 -d "$(pwd)" \
-	-spotify-id=$SPOTIFY_ID -spotify-secret=$SPOTIFY_SECRET \
+go run ./backend -t "$DISCORD_TOKEN" -p 9116 -d "$(pwd)" \
+	-spotify-id="$SPOTIFY_ID" -spotify-secret="$SPOTIFY_TOKEN" \
 	-video-dir="$(pwd)/videocache" --working-dir="$(pwd)"
