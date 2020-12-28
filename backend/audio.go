@@ -19,34 +19,15 @@ import (
 	"github.com/jonas747/ogg"
 )
 
-type Track struct {
-	Name   string `json:"name,omitempty"`
-	Artist string `json:"artist,omitempty"`
-	Path   string `json:"path,omitempty"`
-}
-
-func (t Track) ID() string {
-	// XXX: Change once we allow tracks indexed by youtube URL
-	return t.Name + "_" + t.Artist
-}
-
-type Playlist []Track
-
-func (p Playlist) Shuffle() {
-	rand.Shuffle(len(p), func(i, j int) {
-		p[i], p[j] = p[j], p[i]
-	})
-}
-
 type AudioDownloadManager struct {
 	sync.Mutex
 
-	// playlist cache
-	cache map[string]Playlist
+	// cache spotify playlists to avoid hitting limits
+	playlistCache map[string]Playlist
 
 	// cache tracks by mapping the tracks UID to a track that contains the
 	// file path of that track
-	tcache map[string]Track
+	trackCache map[string]Track
 
 	passiveDL chan []Track
 
@@ -59,8 +40,9 @@ func writeJSON(path string, t interface{}) error {
 		return err
 	}
 
+	// No reason to be concerned about bytes here for right now.
 	e := json.NewEncoder(f)
-	e.SetIndent("", "\t") // XXX Debug
+	e.SetIndent("", "\t")
 	if err := e.Encode(t); err != nil {
 		return err
 	}
@@ -87,14 +69,15 @@ func (adm *AudioDownloadManager) flushCache() error {
 	adm.Lock()
 	defer adm.Unlock()
 
-	// XXX Bad name for this
-	if err := writeJSON("discordCache", &adm.cache); err != nil {
-		return fmt.Errorf("writeJSON(discordCache): %w", err)
+	playlistCachePath := fmt.Sprintf("%s/playlist_cache.json", videoDir)
+	if err := writeJSON(playlistCachePath, &adm.playlistCache); err != nil {
+		return fmt.Errorf("writeJSON(playlistCache): %w", err)
 	}
 
 	// XXX: different directory
-	if err := writeJSON(fmt.Sprintf("%s/videoCache", videoDir), &adm.tcache); err != nil {
-		return fmt.Errorf("writeJSON(videoCache): %w", err)
+	trackCachePath := fmt.Sprintf("%s/video_cache.json", videoDir)
+	if err := writeJSON(trackCachePath, &adm.trackCache); err != nil {
+		return fmt.Errorf("writeJSON(trackCache): %w", err)
 	}
 
 	return nil
@@ -103,14 +86,14 @@ func (adm *AudioDownloadManager) flushCache() error {
 func (adm *AudioDownloadManager) readCache() error {
 	adm.Lock()
 
-	if err := loadJSON("discordCache", &adm.cache); err != nil {
+	if err := loadJSON("discordCache", &adm.playlistCache); err != nil {
 		if !os.IsNotExist(err) {
 			adm.Unlock()
 			return fmt.Errorf("loadJSON(discordCache): %w", err)
 		}
 	}
 
-	if err := loadJSON(fmt.Sprintf("%s/videoCache", videoDir), &adm.tcache); err != nil {
+	if err := loadJSON(fmt.Sprintf("%s/videoCache", videoDir), &adm.trackCache); err != nil {
 		if !os.IsNotExist(err) {
 			adm.Unlock()
 			return fmt.Errorf("loadJSON(videoCache): %w", err)
@@ -124,7 +107,7 @@ func (adm *AudioDownloadManager) readCache() error {
 
 func (adm *AudioDownloadManager) DownloadPlaylist(url string) (Playlist, error) {
 	adm.Lock()
-	if pl, exists := adm.cache[url]; exists {
+	if pl, exists := adm.playlistCache[url]; exists {
 		adm.Unlock()
 		log.Println("using cache")
 		return pl, nil
@@ -148,7 +131,7 @@ func (adm *AudioDownloadManager) DownloadPlaylist(url string) (Playlist, error) 
 		err = adm.s.NextPage(&page)
 		if err == spotify.ErrNoMorePages {
 			adm.Lock()
-			adm.cache[url] = tracks
+			adm.playlistCache[url] = tracks
 			adm.Unlock()
 
 			adm.flushCache() // XXX: debug, shouldnt flush after every use
@@ -172,8 +155,12 @@ func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 		return Track{}, errors.New("DownloadTrack: attempting to download track with path info")
 	}
 
+	if track.URL == "" {
+		return Track{}, errors.New("DownloadTrack: cannot download track without URL")
+	}
+
 	adm.Lock()
-	if t, exists := adm.tcache[track.ID()]; exists {
+	if t, exists := adm.trackCache[track.ID()]; exists {
 		// Got a valid track in cache.
 		adm.Unlock()
 		return t, nil
@@ -226,7 +213,7 @@ func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 	track.Path = filename
 
 	adm.Lock()
-	adm.tcache[track.ID()] = track
+	adm.trackCache[track.ID()] = track
 	adm.Unlock()
 
 	adm.flushCache() // XXX: Don't flush cache every iteration.
@@ -268,7 +255,7 @@ func (adm *AudioDownloadManager) PassiveDownload() {
 
 				adm.Lock()
 				id := track.ID()
-				if _, exists := adm.tcache[id]; exists {
+				if _, exists := adm.trackCache[id]; exists {
 					adm.Unlock()
 					continue
 				}
@@ -326,9 +313,8 @@ type Player struct {
 	playing         int
 	playlist        Playlist
 
-	playerOn  bool
-	sigReload chan struct{}
-	sigSkip   chan struct{}
+	playerOn bool
+	signal   chan PlayerSignal
 }
 
 func NewPlayer() *Player {
@@ -359,8 +345,7 @@ func (p *Player) SetPlaylist(url string) error {
 	p.playlist = pl
 
 	if p.playerOn {
-		fmt.Println("sent reload") // XXX DEBUG
-		p.sigReload <- struct{}{}
+		p.signal <- SigReload
 	}
 
 	p.Unlock()
@@ -368,6 +353,23 @@ func (p *Player) SetPlaylist(url string) error {
 	adm.QueueTracksForPassiveDownload(pl[1:])
 
 	return nil
+}
+
+func (p *Player) HandleSignal(in PlayerSignal) (bool, bool) {
+	switch in.Type {
+	case SigTypeReload:
+		p.Lock()
+		p.playing += 1
+		p.Unlock()
+		return true, false
+	case SigTypeStop:
+		return false, true
+	case SigTypeSkip:
+		return true, false
+	default:
+		log.Fatal("invalid player signal")
+	}
+	return false, false
 }
 
 func (p *Player) Playing() (Track, []Track) {
@@ -396,7 +398,11 @@ func (p *Player) DownloadCurrent() (Track, error) {
 }
 
 func (p *Player) Skip() {
-	p.sigSkip <- struct{}{}
+	p.signal <- SigSkip
+}
+
+func (p *Player) Stop() {
+	p.signal <- SigStop
 }
 
 func (p *Player) StartPlayLoop(msg func(msg string) error, joinVoice func() (voice *discordgo.VoiceConnection, err error)) {
@@ -408,9 +414,7 @@ func (p *Player) StartPlayLoop(msg func(msg string) error, joinVoice func() (voi
 		return
 	}
 
-	p.sigReload = make(chan struct{})
-	p.sigSkip = make(chan struct{})
-
+	p.signal = make(chan PlayerSignal)
 	p.playerOn = true
 
 	fmt.Println("StartPlayLoop(): loops on b") // XXX DEBUG
@@ -424,7 +428,7 @@ func (p *Player) PlayLoop(msg func(msg string) error, joinVoice func() (voice *d
 	*/
 	defer func() {
 		p.Lock()
-		p.sigReload = nil
+		p.signal = nil
 		p.playerOn = false
 		p.Unlock()
 	}()
@@ -529,13 +533,14 @@ Loop:
 			}
 
 			select {
-			case <-p.sigReload:
-				break EncodeLoop
-			case <-p.sigSkip:
-				p.Lock()
-				p.playing += 1
-				p.Unlock()
-				break EncodeLoop
+			case in := <-p.signal:
+				reload, exit := p.HandleSignal(in)
+				if exit {
+					return
+				}
+				if reload {
+					break EncodeLoop
+				}
 			case conn.OpusSend <- packet:
 			case <-time.After(time.Second):
 				// We haven't been able to send a frame in a second, assume the connection is borked

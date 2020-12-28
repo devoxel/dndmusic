@@ -23,7 +23,7 @@ func (s *DiscordServer) incomingMessage(ds *discordgo.Session, m *discordgo.Mess
 }
 
 func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.MessageCreate) {
-	const prefix = "🙂"
+	const prefix = ";"
 
 	if !strings.HasPrefix(m.Content, prefix) {
 		return
@@ -44,6 +44,8 @@ func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.Messag
 	switch cmd[0] {
 	case "create":
 		s.handleCreate(ds, m)
+	case "stop":
+		s.handleStop(ds, m)
 	case "skip":
 		s.handleSkip(ds, m)
 	case "add":
@@ -137,8 +139,23 @@ func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.Message
 	fmt.Println(sessionToken)
 
 	hi := "join here: "
-	sendMsg(fmt.Sprintf("%s https://sb.invalidsyn.tax/?s=%s", hi, sessionToken))
+	sendMsg(fmt.Sprintf("%s %s/?s=%s", hi, siteURL, sessionToken))
+}
 
+func (s *DiscordServer) handleStop(ds *discordgo.Session, m *discordgo.MessageCreate) {
+	sendMsg := func(msg string) error {
+		_, err := ds.ChannelMessageSend(m.ChannelID, msg)
+		return err
+	}
+
+	gs, err := s.sessions.FromGuild(m.GuildID)
+	if err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+	gs.Stop()
+
+	sendMsg("bye! see you soon :)")
 }
 
 func (s *DiscordServer) handleSkip(ds *discordgo.Session, m *discordgo.MessageCreate) {

@@ -7,7 +7,7 @@ import ValidSession from './ValidSession.js';
 const urlParams = new URLSearchParams(window.location.search);
 const session = urlParams.get('s');
 
-const socket = new WebSocket("wss://sb.invalidsyn.tax/ws?s=" + session);
+const socket = new WebSocket("wss://" + window.location.host +"/ws?s=" + session);
 
 class App extends React.Component {
   constructor(props) {

@@ -25,10 +25,12 @@ var (
 	spotifySecret string
 	videoDir      string
 	workingDir    string
+	siteURL       string
 )
 
 func init() {
 	flag.StringVar(&token, "t", "", "discord bot auth token")
+	flag.StringVar(&siteURL, "url", "", "site url")
 	flag.StringVar(&spotifyID, "spotify-id", "", "spotify id")
 	flag.StringVar(&spotifySecret, "spotify-secret", "", "spotify secret")
 	flag.StringVar(&videoDir, "video-dir", ".", "video-directory")
@@ -57,14 +59,15 @@ func validateWorkingDir() {
 func initBot(ongoingSessions *Sessions) *discordgo.Session {
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
-		log.Fatal("cannot init discord bot")
+		log.Fatal("cannot init discord bot", err)
 	}
 
+	// dg.LogLevel = discordgo.LogDebug
 	s := &DiscordServer{ongoingSessions}
 	dg.AddHandler(s.incomingMessage)
 
 	if err = dg.Open(); err != nil {
-		log.Fatal("cannot init websocket:", err)
+		log.Fatal("cannot init websocket: ", err)
 	}
 
 	return dg
@@ -73,10 +76,10 @@ func initADM() {
 	// XXX: dirty global
 	adm = &AudioDownloadManager{
 		// XXX: AudioDownloadManager could sync cache from file tree.
-		passiveDL: make(chan []Track),
-		cache:     map[string]Playlist{},
-		tcache:    map[string]Track{},
-		s:         &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
+		passiveDL:     make(chan []Track),
+		playlistcache: map[string]Playlist{},
+		trackCache:    map[string]Track{},
+		s:             &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
 	}
 
 	if err := adm.s.Authorize(); err != nil {
@@ -92,6 +95,7 @@ func initADM() {
 
 func main() {
 	flag.Parse()
+
 	validateWorkingDir()
 	rand.Seed(time.Now().Unix())
 
@@ -103,6 +107,10 @@ func main() {
 
 	if token == "" {
 		log.Fatal("no token provided")
+	}
+
+	if siteURL == "" {
+		log.Fatal("no site url provided")
 	}
 
 	ongoingSessions := &Sessions{

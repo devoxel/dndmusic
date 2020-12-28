@@ -61,6 +61,10 @@ func (gs *guildState) Skip() {
 	gs.p.Skip()
 }
 
+func (gs *guildState) Stop() {
+	gs.p.Stop()
+}
+
 func (gs *guildState) Playlists() []WSPlaylist {
 	gs.Lock()
 	defer gs.Unlock()

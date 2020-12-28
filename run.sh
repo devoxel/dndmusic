@@ -11,4 +11,5 @@ fi
 
 go run ./backend -t "$DISCORD_TOKEN" -p 9116 -d "$(pwd)" \
 	-spotify-id="$SPOTIFY_ID" -spotify-secret="$SPOTIFY_TOKEN" \
-	-video-dir="$(pwd)/videocache" --working-dir="$(pwd)"
+	-video-dir="$(pwd)/videocache" --working-dir="$(pwd)" \
+	-url="https://dndmusic.devoxel.dev"
