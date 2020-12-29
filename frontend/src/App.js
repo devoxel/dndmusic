@@ -77,14 +77,15 @@ class App extends React.Component {
 
   }
 
-  handlePlaylist(url) {
-    console.log("PLAYLIST HANDLED ", url)
+  handlePlaylist(title) {
+    console.log("PLAYLIST HANDLED ", title)
 
     const msg = {
       'message': 'MusicSelect',
       'type': 'Playlist',
-      'playlist': url,
+      'title': title,
     };
+
     const toSend = JSON.stringify(msg);
     socket.send(toSend);
   }

@@ -7,7 +7,7 @@ function Playlist(props) {
     return (
       <div className="Playlist" >
         <p className="Playlist-Title">
-          <a key={pl.url} onClick={() => { props.handlePlaylist(pl.url); }} className="Playlist-Link">
+          <a key={pl.url} onClick={() => { props.handlePlaylist(pl.title); }} className="Playlist-Link">
             {pl.title}
           </a>
         </p>
