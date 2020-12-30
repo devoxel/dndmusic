@@ -105,6 +105,9 @@ func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 }
 
 func (adm *AudioDownloadManager) GetYoutubeURL(search string) (Track, error) {
+	// This is a pretty ugly function, could use refactoring.
+	log.Printf("getYoutubeURLS: setting youtube urls for %v tracks", len(search))
+
 	adm.Lock()
 	if uID, exists := adm.searchCache[search]; exists {
 		defer adm.Unlock()

@@ -158,20 +158,21 @@ func (gs *guildState) SetPlaylist(title string) {
 	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
 }
 
-func (gs *guildState) QueueSingle(search string) error {
+func (gs *guildState) QueueSingle(search string) (Track, error) {
 	gs.Lock()
 	defer gs.Unlock()
 
-	if err := gs.p.QueueSingle(search); err != nil {
+	track, err := gs.p.QueueSingle(search)
+	if err != nil {
 		log.Printf("QueueSingle(%s) error: %v", search, err)
 		msg := fmt.Sprintf("Oops! Flargunnstow failed at the modest tasks that was his charge. Debug: %#v", err)
 		gs.msg(msg)
-		return err
+		return Track{}, err
 	}
 
 	// Signal that we want to join the voice channel and start playing.
 	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
-	return nil
+	return track, nil
 }
 
 func (gs *guildState) Playing() (Track, []Track) {

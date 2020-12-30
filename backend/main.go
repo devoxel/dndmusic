@@ -64,7 +64,7 @@ func initBot(ongoingSessions *Sessions) *discordgo.Session {
 	}
 
 	// dg.LogLevel = discordgo.LogDebug
-	s := &DiscordServer{ongoingSessions}
+	s := &DiscordBot{ongoingSessions}
 	dg.AddHandler(s.incomingMessage)
 
 	if err = dg.Open(); err != nil {
