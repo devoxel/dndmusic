@@ -57,7 +57,7 @@ func validateWorkingDir() {
 	}
 }
 
-func initBot(ongoingSessions *Sessions) *discordgo.Session {
+func initBot(ongoingSessions *SessionManager) *discordgo.Session {
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
 		log.Fatal("cannot init discord bot", err)
@@ -115,8 +115,8 @@ func main() {
 		log.Fatal("no site url provided")
 	}
 
-	ongoingSessions := &Sessions{
-		states:      sync.Map{},
+	ongoingSessions := &SessionManager{
+		sessions:      sync.Map{},
 		guildLookup: sync.Map{},
 	}
 

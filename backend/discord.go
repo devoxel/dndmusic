@@ -14,7 +14,7 @@ type discordSession interface {
 }
 
 type DiscordBot struct {
-	sessions *Sessions
+	sessions *SessionManager
 }
 
 // Have to wrap the function to allow us to use an interface
@@ -208,7 +208,7 @@ func (s *DiscordBot) partialJoinVoice(ds *discordgo.Session, guildID, authorID s
 	}, nil
 }
 
-func (s *DiscordBot) getOrCreateSession(ds *discordgo.Session, m *discordgo.MessageCreate) (*guildState, string, error) {
+func (s *DiscordBot) getOrCreateSession(ds *discordgo.Session, m *discordgo.MessageCreate) (*Session, string, error) {
 	joinVoice, err := s.partialJoinVoice(ds, m.GuildID, m.Author.ID)
 	if err != nil {
 		return nil, "", err

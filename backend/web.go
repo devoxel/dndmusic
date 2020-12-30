@@ -16,7 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func genSessionID(ongoingSessions *Sessions) string {
+func genSessionID(ongoingSessions *SessionManager) string {
 	for {
 		session := strconv.Itoa(rand.Int())
 		if !ongoingSessions.Exists(session) {
@@ -47,7 +47,7 @@ type wsMsg struct {
 	//  Empty.
 }
 
-func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
+func wsInvalidSession(ongoingSessions *SessionManager, id string, req wsMsg) (wsMsg, error) {
 	res := wsMsg{}
 
 	if req.Message != "StatusCheck" {
@@ -60,7 +60,7 @@ func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, e
 	}, nil
 }
 
-func wsStatusCheck(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
+func wsStatusCheck(ongoingSessions *SessionManager, id string, req wsMsg) (wsMsg, error) {
 	st, err := ongoingSessions.GetState(id)
 	if err != nil {
 		return wsMsg{}, err
@@ -78,7 +78,7 @@ func wsStatusCheck(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, erro
 	}, nil
 }
 
-func wsMusicSelect(ongoingSessions *Sessions, id string, req wsMsg) error {
+func wsMusicSelect(ongoingSessions *SessionManager, id string, req wsMsg) error {
 	/* XXX: Eventually return to show errors to user.
 	return wsMsg{
 		Message "MusicSelectionResponse",
@@ -88,7 +88,7 @@ func wsMusicSelect(ongoingSessions *Sessions, id string, req wsMsg) error {
 	return ongoingSessions.SetPlaylist(id, req.Title)
 }
 
-func wsMusicSkip(ongoingSessions *Sessions, id string, req wsMsg) error {
+func wsMusicSkip(ongoingSessions *SessionManager, id string, req wsMsg) error {
 	/* XXX: Eventually return to show errors to user.
 	return wsMsg{
 		Message "MusicSelectionResponse",
@@ -104,7 +104,7 @@ func wsMusicSkip(ongoingSessions *Sessions, id string, req wsMsg) error {
 	return nil
 }
 
-func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
+func readLoop(c *websocket.Conn, id string, ongoingSessions *SessionManager) {
 	// it would be more clever to not create my own simplistic RPC protocol.
 	// here and instead use a proper RPC over websocket.
 	// but lets be simple about it and just go for it.
@@ -188,7 +188,7 @@ func readLoop(c *websocket.Conn, id string, ongoingSessions *Sessions) {
 	}
 }
 
-func websocketHandler(ongoingSessions *Sessions) func(w http.ResponseWriter, r *http.Request) {
+func websocketHandler(ongoingSessions *SessionManager) func(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -215,7 +215,7 @@ func websocketHandler(ongoingSessions *Sessions) func(w http.ResponseWriter, r *
 	}
 }
 
-func handlerInit(ongoingSessions *Sessions) {
+func handlerInit(ongoingSessions *SessionManager) {
 	frontendPath := path.Join(runningDir, "frontend/build")
 	index := path.Join(frontendPath, "index.html")
 	_, err := os.Stat(index)
