@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -77,8 +78,9 @@ func initADM() {
 	adm = &AudioDownloadManager{
 		// XXX: AudioDownloadManager could sync cache from file tree.
 		passiveDL:     make(chan []Track),
-		playlistcache: map[string]Playlist{},
+		playlistCache: map[string][]string{},
 		trackCache:    map[string]Track{},
+		searchCache:   map[string]string{},
 		s:             &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
 	}
 
@@ -114,14 +116,16 @@ func main() {
 	}
 
 	ongoingSessions := &Sessions{
-		states:      map[string]*guildState{},
-		guildLookup: map[string]string{},
+		states:      sync.Map{},
+		guildLookup: sync.Map{},
 	}
 
 	dg := initBot(ongoingSessions)
 
 	log.Println("discord initalized ...") // XXX: Debug
 	handlerInit(ongoingSessions)
+
+	initSample()
 
 	sc := make(chan os.Signal, 1)
 

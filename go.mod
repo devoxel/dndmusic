@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/bwmarrin/discordgo v0.22.1-0.20201217190221-8d6815dde7ed
+	github.com/google/go-cmp v0.5.4
 	github.com/gorilla/sessions v1.2.1
 	github.com/gorilla/websocket v1.4.0
 	github.com/jonas747/dca v0.0.0-20200609191102-fe85ccf0947a

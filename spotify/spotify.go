@@ -81,7 +81,7 @@ func (s *Client) GetPlaylist(url string) (*FullPlaylist, error) {
 	id := strings.TrimPrefix(url, "open.spotify.com/playlist/")
 
 	playlistURL := fmt.Sprintf(URL, id)
-	log.Printf("getting: %v", playlistURL)
+	// log.Printf("getting: %v", playlistURL) XXX: Debug
 
 	pl := &FullPlaylist{}
 	if err := s.get(playlistURL, pl); err != nil {

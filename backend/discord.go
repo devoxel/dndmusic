@@ -43,33 +43,71 @@ func (s *DiscordServer) handleMessage(ds *discordgo.Session, m *discordgo.Messag
 
 	switch cmd[0] {
 	case "create":
+	case "start":
 		s.handleCreate(ds, m)
 	case "stop":
 		s.handleStop(ds, m)
+	case "play":
+		s.handlePlay(ds, m, strings.Join(cmd[1:], " "))
 	case "skip":
 		s.handleSkip(ds, m)
-	case "add":
-		pl, err := s.parsePlaylistArgs(cmd)
-		if err != nil {
-			s.sendErrorMsg(ds, m, err)
+	case "add_playlist":
+		if len(cmd) > 1 {
+			// handle spotify playlist download
+			s.sendErrorMsg(ds, m, errors.New("remind devoxel to implement this"))
 			return
 		}
-		s.handleAdd(ds, m, pl)
-	case "delete":
-		pl, err := s.parsePlaylistArgs(cmd)
-		if err != nil {
-			s.sendErrorMsg(ds, m, err)
-			return
-		}
-		s.handleDelete(ds, m, pl)
+		name := cmd[1]
+		category := "misc" // XXX maybe shouldnt be magic text
+		s.handleAdd(ds, m, name, category, []Track{})
+	case "delete_playlist":
+		name := cmd[1]
+		s.handleDelete(ds, m, name)
 	}
 }
 
-func (s *DiscordServer) handleAdd(ds *discordgo.Session, m *discordgo.MessageCreate, pl WSPlaylist) {
+func (s *DiscordServer) handlePlay(ds *discordgo.Session, m *discordgo.MessageCreate, search string) {
+	// XXX: remove duplication here
+	sendMsg := func(msg string) error {
+		_, err := ds.ChannelMessageSend(m.ChannelID, msg)
+		return err
+	}
+
+	joinVoice := func() (*discordgo.VoiceConnection, error) {
+		// get channel sender is in
+		cid, err := s.getSenderCID(ds, m)
+		if err != nil {
+			return nil, err
+		}
+		return ds.ChannelVoiceJoin(m.GuildID, cid, false, true)
+	}
+
+	gs, _, err := s.sessions.FromOrCreate(m.GuildID, sendMsg, joinVoice)
+	if err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+
+	if err := gs.QueueSingle(search); err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+	}
+
+	// TODO: send nicely formatted ACK
+}
+
+func (s *DiscordServer) handleAdd(ds *discordgo.Session, m *discordgo.MessageCreate, name, category string, tracks []Track) {
 	gs, err := s.sessions.FromGuild(m.GuildID)
 	if err != nil {
 		s.sendErrorMsg(ds, m, err)
 		return
+	}
+
+	pl, err := NewPlaylist(name, category, tracks)
+	if err != nil {
+		s.sendErrorMsg(ds, m, err)
+		return
+
 	}
 
 	if err := gs.AddPlaylist(pl); err != nil {
@@ -78,16 +116,18 @@ func (s *DiscordServer) handleAdd(ds *discordgo.Session, m *discordgo.MessageCre
 	}
 }
 
-func (s *DiscordServer) handleDelete(ds *discordgo.Session, m *discordgo.MessageCreate, pl WSPlaylist) {
-	gs, err := s.sessions.FromGuild(m.GuildID)
-	if err != nil {
-		s.sendErrorMsg(ds, m, err)
-		return
-	}
-	if err := gs.RemovePlaylist(pl); err != nil {
-		s.sendErrorMsg(ds, m, err)
-		return
-	}
+func (s *DiscordServer) handleDelete(ds *discordgo.Session, m *discordgo.MessageCreate, name string) {
+	/*
+		gs, err := s.sessions.FromGuild(m.GuildID)
+		if err != nil {
+			s.sendErrorMsg(ds, m, err)
+			return
+		}
+		if err := gs.RemovePlaylist(pl); err != nil {
+			s.sendErrorMsg(ds, m, err)
+			return
+		}
+	*/
 }
 
 func (s *DiscordServer) sendErrorMsg(ds discordSession, m *discordgo.MessageCreate, err error) {
@@ -130,13 +170,10 @@ func (s *DiscordServer) handleCreate(ds *discordgo.Session, m *discordgo.Message
 		return ds.ChannelVoiceJoin(m.GuildID, cid, false, true)
 	}
 
-	fmt.Println("createing sessions")
-	sessionToken, err := s.sessions.Create(m, sendMsg, joinVoice)
+	_, sessionToken, err := s.sessions.FromOrCreate(m.GuildID, sendMsg, joinVoice)
 	if err != nil {
 		s.sendErrorMsg(ds, m, err)
 	}
-
-	fmt.Println(sessionToken)
 
 	hi := "join here: "
 	sendMsg(fmt.Sprintf("%s %s/?s=%s", hi, siteURL, sessionToken))
@@ -174,13 +211,4 @@ func (s *DiscordServer) sendMessage(ds discordSession, id, message string) {
 		log.Printf("channel.id = %v", id)
 		log.Printf("m = %v", m)
 	}
-}
-
-func (s *DiscordServer) parsePlaylistArgs(cmd []string) (WSPlaylist, error) {
-	if len(cmd) != 4 {
-		return WSPlaylist{}, errors.New("should be: 🙂 name url category")
-	}
-	log.Println("CMD=", cmd)
-
-	return WSPlaylist{cmd[1], cmd[2], cmd[3]}, nil
 }

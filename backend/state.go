@@ -5,20 +5,113 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"sort"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
 )
 
+var (
+	ErrGuildPlaylistExists       = errors.New("a playlist with that title already exists")
+	ErrGuildPlaylistDoesNotExist = errors.New("a playlist with that title does not exist")
+)
+
+// guildPlaylists store all the guildPlaylists sorted (but with O(n logn) inserts)
+// not thread safe (although this should not be relevant since they are only used
+// by guildState, which locks itself anyway).
+//
+// since the web client curls VERY regularly it makes sense to implement it this
+// way. we could also have some kind of cache and use a sorted set, but since
+// we don't expect too many playlists to be added his is okay.
+type guildPlaylists struct {
+	playlists []*Playlist
+	keys      map[string]struct{}
+}
+
+func newGuildPlaylists() *guildPlaylists {
+	return &guildPlaylists{
+		keys:      map[string]struct{}{},
+		playlists: []*Playlist{},
+	}
+}
+
+func (gp *guildPlaylists) GetAll() []*Playlist {
+	return gp.playlists
+}
+
+func (gp *guildPlaylists) get(t string) (int, error) {
+	_, exists := gp.keys[t]
+	if !exists {
+		return -1, ErrGuildPlaylistDoesNotExist
+	}
+
+	i := sort.Search(len(gp.playlists), func(i int) bool {
+		return gp.playlists[i].Title >= t
+	})
+
+	if i >= len(gp.playlists) || gp.playlists[i].Title != t {
+		// key's value does not reflect reality
+		log.Printf("ERROR: data integrity issue: playlist '%s' did not exist in data but has key", t)
+		delete(gp.keys, t)
+		return -1, ErrGuildPlaylistDoesNotExist
+	}
+
+	return i, nil
+
+}
+
+func (gp *guildPlaylists) Get(t string) (*Playlist, error) {
+	i, err := gp.get(t)
+	if err != nil {
+		return nil, err
+	}
+	return gp.playlists[i], nil
+}
+
+func (gp *guildPlaylists) Insert(pl *Playlist) error {
+	_, exists := gp.keys[pl.Title]
+	if exists {
+		return ErrGuildPlaylistExists
+	}
+
+	gp.keys[pl.Title] = struct{}{}
+	gp.playlists = append(gp.playlists, pl)
+	gp.sort()
+
+	return nil
+}
+
+func (gp *guildPlaylists) Remove(t string) error {
+	_, exists := gp.keys[t]
+	if !exists {
+		return ErrGuildPlaylistDoesNotExist
+	}
+
+	delete(gp.keys, t)
+
+	i, err := gp.get(t)
+	if err != nil {
+		return err
+	}
+
+	l := len(gp.playlists)
+	copy(gp.playlists[i:], gp.playlists[i+1:])
+	gp.playlists[l-1] = nil
+	gp.playlists = gp.playlists[:l-1]
+	return nil
+}
+
+func (gp *guildPlaylists) sort() {
+	sort.Slice(gp.playlists, func(i, j int) bool {
+		return gp.playlists[i].Title < gp.playlists[j].Title
+	})
+}
+
 type guildState struct {
 	sync.Mutex
 
-	confirmed bool
-	password  string
-
-	playlists []WSPlaylist
+	playlists *guildPlaylists
 
 	msg       func(msg string) error
 	joinVoice func() (voice *discordgo.VoiceConnection, err error)
@@ -26,31 +119,59 @@ type guildState struct {
 }
 
 func newGuildState() *guildState {
-	playlist := make([]WSPlaylist, len(samplePlaylists))
-	copy(playlist, samplePlaylists)
+	playlists := newGuildPlaylists()
+
+	for _, sample := range samplePlaylists {
+		newPl, err := NewPlaylist(sample.Title, sample.Category, sample.Tracks)
+		if err != nil {
+			log.Fatalf("could not init guildState from sample playlist: %v", err)
+		}
+		playlists.Insert(newPl)
+	}
 
 	// TODO: persist playlists
 	return &guildState{
 		p:         NewPlayer(),
-		playlists: samplePlaylists,
+		playlists: playlists,
 	}
 }
 
-func (gs *guildState) SetPlaylist(url string) {
+func (gs *guildState) SetPlaylist(title string) {
 	gs.Lock()
 	defer gs.Unlock()
 
-	if err := gs.p.SetPlaylist(url); err != nil {
-		log.Printf("SetPlaylist: cannot set: %v", err)
+	pl, err := gs.playlists.Get(title)
+	if err != nil {
+		log.Printf("SetPlaylist: cannot find playlist: %v", err) // XXX Debug
+		gs.msg(fmt.Sprintf("Sorry, I can't find the playlist %#v.", title))
+		return
+	}
 
-		msg := fmt.Sprintf("Couldn't set your playlist. Here's the error, if it helps: %v", err)
+	if err := gs.p.SetPlaylist(pl); err != nil {
+		log.Printf("SetPlaylist: cannot set: %v", err)
+		msg := fmt.Sprintf("Couldn't set your playlist. Here's the debug output: %#v", err)
 		gs.msg(msg)
+		return
 	}
 
 	// Signal that we want to join the voice channel and start playing.
 	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
+}
 
-	return
+func (gs *guildState) QueueSingle(search string) error {
+	gs.Lock()
+	defer gs.Unlock()
+
+	if err := gs.p.QueueSingle(search); err != nil {
+		log.Printf("QueueSingle(%s) error: %v", search, err)
+		msg := fmt.Sprintf("Oops! Flargunnstow failed at the modest tasks that was his charge. Debug: %#v", err)
+		gs.msg(msg)
+		return err
+	}
+
+	// Signal that we want to join the voice channel and start playing.
+	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
+	return nil
 }
 
 func (gs *guildState) Playing() (Track, []Track) {
@@ -65,164 +186,94 @@ func (gs *guildState) Stop() {
 	gs.p.Stop()
 }
 
-func (gs *guildState) Playlists() []WSPlaylist {
-	gs.Lock()
-	defer gs.Unlock()
-	return gs.playlists
-}
-
-func validatePlaylist(p WSPlaylist) error {
-	if p.Title == "" {
-		return errors.New("empty name")
-	}
-
-	if p.URL == "" {
-		return errors.New("empty url")
-	}
-
-	if p.Category == "" {
-		return errors.New("empty category")
-	}
-
-	httpPrefix := func(s string) bool {
-		return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
-	}
-
-	if httpPrefix(p.Title) {
-		return errors.New("Title should not have http prefix")
-	}
-
-	if !httpPrefix(p.URL) {
-		return errors.New("URL has no https:// prefix")
-	}
-
-	_, err := adm.DownloadPlaylist(p.URL)
-	if err != nil {
-		return fmt.Errorf("can't download playlist: %w", err)
-	}
-
-	return nil
-}
-
-func (gs *guildState) AddPlaylist(p WSPlaylist) error {
-	if err := validatePlaylist(p); err != nil {
-		return err
-	}
-
+func (gs *guildState) Playlists() []*Playlist {
 	gs.Lock()
 	defer gs.Unlock()
 
-	gs.playlists = append(gs.playlists, p)
-	return nil
+	return gs.playlists.GetAll()
 }
 
-func (gs *guildState) RemovePlaylist(match WSPlaylist) error {
+func (gs *guildState) AddPlaylist(p *Playlist) error {
 	gs.Lock()
 	defer gs.Unlock()
 
-	// O(n) to remove a playlist, would be nice to remove this.
-	got := -1
-	for i, p := range gs.playlists {
-		if p.Equal(match) {
-			got = i
-			break
-		}
-	}
+	return gs.playlists.Insert(p)
+}
 
-	if got == -1 {
-		return errors.New("no matching playlist")
-	}
+func (gs *guildState) RemovePlaylist(title string) error {
+	gs.Lock()
+	defer gs.Unlock()
 
-	copy(gs.playlists[got:], gs.playlists[got+1:])
-	gs.playlists = gs.playlists[:len(gs.playlists)-1]
-
-	return nil
+	return gs.playlists.Remove(title)
 }
 
 type Sessions struct {
-	sync.Mutex
+	// guildLookup provides a way to ongoing sessions for a guild
+	//   i.e., map[guild id] -> session id
+	// This is used when we get a discord command, to ensure we modify
+	// the session that belongs to that guild
+	guildLookup sync.Map // map[string]string
 
-	// map[guild id] -> session id
-	guildLookup map[string]string
-
-	// map[session id] -> state
-	states map[string]*guildState
-
-	// map[passwords] -> session id
-	pwValidation map[string]string
+	// states contains all ongoing discord sessions
+	//   i.e., map[session id] -> state
+	states sync.Map // map[string]*guildState
 }
 
 var ErrSessionExists = errors.New("session already exists")
+var ErrSessionDoesNotExist = errors.New("session does not exist")
 
-func (s *Sessions) Create(m *discordgo.MessageCreate,
-	msg func(msg string) error, joinVoice func() (*discordgo.VoiceConnection, error)) (string, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	gid := m.GuildID
-	sid, ok := s.guildLookup[gid]
+func (s *Sessions) FromOrCreate(guildID string,
+	msg func(msg string) error, joinVoice func() (*discordgo.VoiceConnection, error)) (*guildState, string, error) {
+	sID, ok := s.guildLookup.Load(guildID)
 	if !ok {
-		sid = genPassword(s)
+		// XXX: WE NEED TO PERSIST GUILDS HERE!! SUPER MEGA IMPORTANT!!!
+		seshID := generateSID(s) // assign a new one because of interface reasons :(
 		state := newGuildState()
-		// create guildState
-		s.states[sid] = state
-		s.guildLookup[gid] = sid
+
+		s.states.Store(seshID, state)
+		s.guildLookup.Store(guildID, seshID)
+
+		sID = interface{}(seshID)
 	}
 
-	state, ok := s.states[sid]
+	st, ok := s.states.Load(sID)
 	if !ok {
-		return "", errors.New("Create: no corresponding guild state for session id " + sid)
+		return nil, "", fmt.Errorf("Create: no corresponding guild state for session id %v", sID)
 	}
 
-	state.confirmed = true
+	state := st.(*guildState) // allow panic here we ever store something that isn't a guildState
 	state.msg = msg
 	state.joinVoice = joinVoice
 
-	return sid, nil
+	return state, sID.(string), nil
 }
 
-func (s *Sessions) FromGuild(gid string) (*guildState, error) {
-	sid, ok := s.guildLookup[gid]
-	if !ok {
-		return nil, errors.New("start a session first")
+func (s *Sessions) FromGuild(guildID string) (*guildState, error) {
+	sID, exists := s.guildLookup.Load(guildID)
+	if !exists {
+		return nil, ErrSessionDoesNotExist
 	}
 
-	state, ok := s.states[sid]
-	if !ok {
-		return nil, errors.New("FromGuild: no corresponding guild state for session id " + sid)
+	st, exists := s.states.Load(sID)
+	if !exists {
+		return nil, fmt.Errorf("FromGuild: no corresponding guild state for session id %v", sID)
 	}
+	state := st.(*guildState) // allow panic here we ever store something that isn't a guildState
 
 	return state, nil
 }
 
-func (s *Sessions) Exists(id string) bool {
-	s.Lock()
-	defer s.Unlock()
-
-	_, exists := s.states[id]
+func (s *Sessions) Exists(sID string) bool {
+	_, exists := s.states.Load(sID)
 	return exists
 }
 
-func (s *Sessions) Validate(id string) bool {
-	s.Lock()
-	defer s.Unlock()
-
-	state, exists := s.states[id]
-	return exists && state.confirmed
-}
-
-func (s *Sessions) GetState(id string) (*guildState, error) {
-	s.Lock()
-	defer s.Unlock()
-	state, exists := s.states[id]
+func (s *Sessions) GetState(sID string) (*guildState, error) {
+	st, exists := s.states.Load(sID)
 	if !exists {
 		return nil, errors.New("invalid id")
 	}
-
-	if !state.confirmed {
-		return nil, errors.New("unverified id")
-	}
-
+	state := st.(*guildState) // allow panic here we ever store something that isn't a guildState
 	return state, nil
 }
 
@@ -231,12 +282,11 @@ func (s *Sessions) SetPlaylist(id, url string) error {
 	if err != nil {
 		return err
 	}
-
 	state.SetPlaylist(url)
 	return nil
 }
 
-func genPassword(ongoingSessions *Sessions) string {
+func generateSID(ongoingSessions *Sessions) string {
 	// XXX make unique.
 	pwi := rand.Intn(899998)
 	return strconv.Itoa(pwi + 100000)

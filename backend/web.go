@@ -34,27 +34,17 @@ type wsMsg struct {
 	Message string `json:"message"`
 
 	// StatusCheck
-	Status           string       `json:"status,omitempty"`
-	Playlists        []WSPlaylist `json:"playlists,omitempty"`
-	CurrentlyPlaying Track        `json:"playing,omitempty"`
-	CurrentPlaylist  []Track      `json:"current_playlist,omitempty"`
+	Status           string      `json:"status,omitempty"`
+	Playlists        []*Playlist `json:"playlists,omitempty"`
+	CurrentlyPlaying Track       `json:"playing,omitempty"`
+	CurrentPlaylist  []Track     `json:"current_playlist,omitempty"`
 
 	// MusicSelect
-	Type       string `json:"type,omitempty"` // UNUSED
-	WSPlaylist string `json:"playlist,omitempty"`
+	Type  string `json:"type,omitempty"` // UNUSED
+	Title string `json:"title,omitempty"`
 
 	// MusicSkip
 	//  Empty.
-}
-
-type WSPlaylist struct {
-	Title    string `json:"title,omitempty"`
-	URL      string `json:"url,omitempty"`
-	Category string `json:"category,omitempty"`
-}
-
-func (p WSPlaylist) Equal(o WSPlaylist) bool {
-	return p.Title == o.Title && p.URL == o.URL && p.Category == o.Category
 }
 
 func wsInvalidSession(ongoingSessions *Sessions, id string, req wsMsg) (wsMsg, error) {
@@ -95,7 +85,7 @@ func wsMusicSelect(ongoingSessions *Sessions, id string, req wsMsg) error {
 	}
 	*/
 
-	return ongoingSessions.SetPlaylist(id, req.WSPlaylist)
+	return ongoingSessions.SetPlaylist(id, req.Title)
 }
 
 func wsMusicSkip(ongoingSessions *Sessions, id string, req wsMsg) error {
