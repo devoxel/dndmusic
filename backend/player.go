@@ -104,7 +104,7 @@ type Player struct {
 	sync.Mutex
 
 	q      *PlayerQ
-	pcm    chan []int16
+	audio  chan []byte
 	signal chan PlayerSignal
 
 	playerOn bool
@@ -120,6 +120,7 @@ func (p *Player) Start(msg func(msg string) error, joinVoice func() (voice *disc
 	p.Lock()
 	defer p.Unlock()
 	if p.playerOn {
+		p.signal <- SigReload
 		return
 	}
 
