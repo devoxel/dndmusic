@@ -1,12 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
-	"strings"
 	"time"
 )
 
@@ -33,46 +32,24 @@ func sharedArgs() []string {
 		"--no-playlist",
 		"--no-call-home",
 		"--no-progress",
-		"--max-filesize", "50m",
+		"--format", "bestaudio",
 	}
 }
 
-func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
-	if track.Path != "" {
-		return track, nil
-	}
+func infoArgs() []string {
+	shared := sharedArgs()
+	return append(shared, "-j")
+}
 
-	if track.URL == "" {
-		return Track{}, errors.New("DownloadTrack: cannot download track without URL")
-	}
+func dlCmd() []string {
+	all := []string{"youtube-dl"}
+	shared := sharedArgs()
+	all = append(all, shared...)
+	return append(all, "-o", "-")
+}
 
-	adm.Lock()
-	if t, exists := adm.trackCache[track.ID()]; exists {
-		if adm.trackCache[track.ID()].Path != "" {
-			// Got a valid track in cache.
-			adm.Unlock()
-			return t, nil
-		}
-	}
-	adm.Unlock()
-
-	id, err := tmpFileName([]string{"3gp", "aac", "flv", "m4a", "mp3", "mp4", "ogg", "wav", " webm"})
-	if err != nil {
-		return Track{}, err
-	}
-
-	args := sharedArgs()
-	args = append(args, []string{
-		"-o",
-		fmt.Sprintf("%s/%s.%%(ext)s", videoDir, id),
-		"--restrict-filenames",
-		"-x",
-		"--audio-format", "opus",
-		track.URL}...)
-
-	cmd := exec.Command("/usr/local/bin/youtube-dl", args...)
+func runCmd(cmd *exec.Cmd) ([]byte, error) {
 	cmd.Dir = workingDir
-	log.Println(cmd) // XXX DEBUG
 
 	out, err := cmd.Output()
 	if err != nil {
@@ -81,139 +58,54 @@ func (adm *AudioDownloadManager) DownloadTrack(track Track) (Track, error) {
 		}
 		log.Println(string(out)) // XXX Debug
 		log.Println(err)         // XXX Debug
-		return Track{}, fmt.Errorf("error downloading track")
+		return []byte{}, fmt.Errorf("error running %s", cmd.Path)
 	}
-	log.Println("youtube-dl output: ", string(out)) // XXX debug
 
-	filename := fmt.Sprintf("%s/%s.opus", videoDir, id)
-
-	// Validate file exists
-	_, err = os.Stat(filename)
-	if err != nil {
-		// youtube dl can fail for a few reasons
-		return Track{}, ErrDownloadFailed
-	}
-	track.Path = filename
-
-	adm.Lock()
-	adm.trackCache[track.ID()] = track
-	adm.Unlock()
-
-	adm.flushCache() // XXX: Don't flush cache every iteration.
-
-	return track, nil
+	return out, nil
 }
 
-func (adm *AudioDownloadManager) GetYoutubeURL(search string) (Track, error) {
-	// This is a pretty ugly function, could use refactoring.
-	log.Printf("getYoutubeURLS: setting youtube urls for %v tracks", len(search))
+type youtubeDLResp struct {
+	Formats []struct {
+		URL string `json:"url"`
+	} `json:"formats"`
+	Title    string `json:"title"`
+	Uploader string `json:"uploader"`
+}
 
-	adm.Lock()
-	if uID, exists := adm.searchCache[search]; exists {
-		defer adm.Unlock()
-
-		// Got a valid UID, lets check if we have it downloaded first
-		if t, exists := adm.trackCache[uID]; exists {
-			// Got a valid track in cache.
-			return t, nil
-		}
-
-		return Track{Name: search, URL: uID}, nil
-
-	}
-	adm.Unlock()
-
-	// This is a pretty ugly function, could use refactoring.
-	log.Printf("getYoutubeURLS: setting youtube urls for %v tracks", len(search))
-
-	args := sharedArgs()
-	args = append(args, "--get-id")
-	args = append(args, "ytsearch:"+fmt.Sprintf("%v", search))
-
-	cmd := exec.Command("/usr/local/bin/youtube-dl", args...)
-	cmd.Dir = workingDir
-	log.Printf("getYoutubeURLs: executing %#v", cmd) // XXX DEBUG
-
-	out, err := cmd.Output()
+func parseTrack(o []byte) (Track, error) {
+	resp := youtubeDLResp{}
+	err := json.Unmarshal(o, &resp)
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			log.Println("getYoutubeURLs: exit error, stderr: ", string(ee.Stderr))
-		}
+		return Track{}, fmt.Errorf("parseTrack: %v", err)
+	}
+
+	if len(resp.Formats) == 0 {
+		return Track{}, fmt.Errorf("download format not available")
+	}
+
+	return Track{Uploader: resp.Uploader, Name: resp.Title, URL: resp.Formats[0].URL}, nil
+}
+
+// DLInfo takes a search string (or any yt-dl argument) and converts it
+// to a downloadable track.
+//
+// TODO: Add the ability to handle a playlist, ie return a []Track{} if
+// given a playlist.  Ideally for this we could identify what yt-dl is doing
+// with the given argument.
+func (adm *AudioDownloadManager) DLInfo(search string) (Track, error) {
+	args := infoArgs()
+	args = append(args, search)
+	cmd := exec.Command("/usr/local/bin/youtube-dl", args...)
+
+	out, err := runCmd(cmd)
+	if err != nil {
 		return Track{}, err
 	}
 
-	outStr := strings.TrimSpace(string(out))
-	outIDs := strings.Split(outStr, "\n")
-
-	for _, id := range outIDs {
-		t := Track{Name: search}
-		id := strings.TrimSpace(id)
-		if len(id) == 0 {
-			continue
-		}
-
-		t.URL = fmt.Sprintf("https://youtube.com/watch?v=%v", id)
-
-		adm.Lock()
-		adm.searchCache[search] = t.URL
-		adm.trackCache[t.URL] = t
-		adm.Unlock()
-
-		return t, nil
+	track, err := parseTrack(out)
+	if err != nil {
+		return Track{}, err
 	}
 
-	return Track{}, errors.New("couldn't find a match on youtube! im out of ideas chief")
-
-}
-
-func (adm *AudioDownloadManager) GetYoutubeURLs(search []string) ([]Track, error) {
-	return []Track{}, errors.New("FIXME")
-	/*
-		// This is a pretty ugly function, could use refactoring.
-		log.Printf("getYoutubeURLS: setting youtube urls for %v tracks", len(search))
-
-
-		args := sharedArgs()
-		args = append(args, "--get-id")
-		for _, s := range search {
-			args = append(args, "ytsearch:"+fmt.Sprintf("%v", s))
-		}
-
-		cmd := exec.Command("/usr/local/bin/youtube-dl", args...)
-		cmd.Dir = workingDir
-		log.Printf("getYoutubeURLs: executing %#v", cmd) // XXX DEBUG
-
-		out, err := cmd.Output()
-		if err != nil {
-			if ee, ok := err.(*exec.ExitError); ok {
-				log.Println("getYoutubeURLs: exit error, stderr: ", string(ee.Stderr))
-			}
-			return []Track{}, err
-		}
-
-		outStr := strings.TrimSpace(string(out))
-		outIDs := strings.Split(outStr, "\n")
-
-		newTracks := []Track{}
-		ct := 0
-		for _, id := range outIDs {
-			if ct > (len(search) - 1) {
-				log.Printf("getYoutubeURLs: too many output ids: %v", outIDs)
-				return newTracks, nil
-			}
-
-			t := Track{Name: search[ct]}
-			id := strings.TrimSpace(id)
-			if len(id) == 0 {
-
-				continue
-			}
-
-			t.URL = fmt.Sprintf("https://youtube.com/watch?v=%v", id)
-			newTracks = append(newTracks, t)
-			ct += 1
-		}
-
-		return newTracks, nil
-	*/
+	return track, nil
 }

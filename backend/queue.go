@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"sync"
 )
@@ -13,16 +12,17 @@ const (
 	SigTypeReload = iota
 	SigTypeSkip
 	SigTypeStop
+	SigTypeErr
 )
 
 type Track struct {
-	Name string `json:"name,omitempty"`
-	Path string `json:"path,omitempty"`
-	URL  string `json:"url,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Uploader string `json:"uploader,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
-func (t Track) ID() string {
-	return t.URL
+func (t Track) Equal(o Track) bool {
+	return t.URL == o.URL // URL is as good as an ID
 }
 
 type Playlist struct {
@@ -53,12 +53,15 @@ func NewPlaylistFromSpotifyURL(title string, category string, url string) (*Play
 		return nil, errors.New("empty url")
 	}
 
+	/* XXX: FIXME
 	tracks, err := adm.DownloadSpotifyPlaylist(url)
 	if err != nil {
 		return nil, fmt.Errorf("can't download playlist: %w", err)
 	}
-
 	return NewPlaylist(title, category, tracks)
+	*/
+	return nil, errors.New("not implemented")
+
 }
 
 func (p Playlist) Shuffle() {
@@ -70,6 +73,7 @@ func (p Playlist) Shuffle() {
 
 type PlayerSignal struct {
 	Type SigType
+	Err  error
 }
 
 var (
@@ -77,6 +81,13 @@ var (
 	SigSkip   = PlayerSignal{Type: SigTypeSkip}
 	SigStop   = PlayerSignal{Type: SigTypeStop}
 )
+
+func SigErr(err error) PlayerSignal {
+	return PlayerSignal{
+		Type: SigTypeErr,
+		Err:  err,
+	}
+}
 
 var ErrNoSongs = errors.New("no songs in player queue!")
 
@@ -149,25 +160,28 @@ func (p *PlayerQ) Insert(idx int, t Track) error {
 	return nil
 }
 
-func (p *PlayerQ) SkipNext() (Track, bool) {
+func (p *PlayerQ) SkipNext() Track {
 	p.Lock()
 	defer p.Unlock()
 	p.current += 1
 
-	// TODO: Maybe reshuffle here
+	// TODO: Reshuffle here if shuffle is on
+	//  This would require turning shuffle into a Q
+	//  managed thing.
 	if p.current > (len(p.playlist) - 1) {
 		p.current = 0
 
 		if p.autoClear {
 			p.playlist = []Track{}
-			return Track{}, true
+			return Track{}
 		}
 	}
 
-	return p.playlist[p.current], false
+	return p.playlist[p.current]
 }
 
 func (p *PlayerQ) Current() (Track, []Track, error) {
+	// TODO: Avoid locking Q every time we look at the current playlist (with RWMutex??)
 	p.Lock()
 	defer p.Unlock()
 	if len(p.playlist) == 0 {

@@ -76,11 +76,7 @@ func initBot(ongoingSessions *SessionManager) *discordgo.Session {
 func initADM() {
 	// XXX: dirty global
 	adm = &AudioDownloadManager{
-		// XXX: AudioDownloadManager could sync cache from file tree.
-		passiveDL:     make(chan []Track),
 		playlistCache: map[string][]string{},
-		trackCache:    map[string]Track{},
-		searchCache:   map[string]string{},
 		s:             &spotify.Client{ClientID: spotifyID, ClientSecret: spotifySecret},
 	}
 
@@ -91,8 +87,6 @@ func initADM() {
 	if err := adm.readCache(); err != nil {
 		log.Fatal(err)
 	}
-
-	go adm.PassiveDownload()
 }
 
 func main() {
@@ -116,7 +110,7 @@ func main() {
 	}
 
 	ongoingSessions := &SessionManager{
-		sessions:      sync.Map{},
+		sessions:    sync.Map{},
 		guildLookup: sync.Map{},
 	}
 

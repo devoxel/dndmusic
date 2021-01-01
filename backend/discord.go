@@ -168,7 +168,7 @@ func (s *DiscordBot) handleQueue(ds *discordgo.Session, m *discordgo.MessageCrea
 	tracks := []string{}
 	playing, playlist := gs.Playing()
 	for _, t := range playlist {
-		if t.ID() == playing.ID() {
+		if t.Equal(playing) {
 			tracks = append(tracks, "+  "+t.Name+" (now playing)")
 		} else {
 			tracks = append(tracks, "-  "+t.Name+"")

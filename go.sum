@@ -14,6 +14,8 @@ github.com/jonas747/dca v0.0.0-20200609191102-fe85ccf0947a h1:BBUmSsuZyaMRk7YMai
 github.com/jonas747/dca v0.0.0-20200609191102-fe85ccf0947a/go.mod h1:rxjYX9OJU81unMxQDHChU/lAiOhlY9MV+faPX/NmwLk=
 github.com/jonas747/ogg v0.0.0-20161220051205-b4f6f4cf3757 h1:Kyv+zTfWIGRNaz/4+lS+CxvuKVZSKFz/6G8E3BKKBRs=
 github.com/jonas747/ogg v0.0.0-20161220051205-b4f6f4cf3757/go.mod h1:cZnNmdLiLpihzgIVqiaQppi9Ts3D4qF/M45//yW35nI=
+github.com/layeh/gopus v0.0.0-20161224163843-0ebf989153aa h1:jCNvcB4EDuQflwb0f9CZ0Xmo1v257PFyYWWlq03DezA=
+github.com/layeh/gopus v0.0.0-20161224163843-0ebf989153aa/go.mod h1:l3amQeFtdEiZjPsh58I61tySy8v+DC9rDxp4nHyG3uM=
 golang.org/x/crypto v0.0.0-20181030102418-4d3f4d9ffa16 h1:y6ce7gCWtnH+m3dCjzQ1PCuwl28DDIc3VNnvY29DlIA=
 golang.org/x/crypto v0.0.0-20181030102418-4d3f4d9ffa16/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2 h1:VklqNMn3ovrHsnt90PveolxSbWFaJdECFbxSq0Mqo2M=

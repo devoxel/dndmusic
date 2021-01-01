@@ -147,7 +147,7 @@ func (gs *Session) SetPlaylist(title string) {
 	}
 
 	// Signal that we want to join the voice channel and start playing.
-	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
+	gs.p.Start(gs.msg, gs.joinVoice)
 }
 
 func (gs *Session) QueueSingle(search string) (Track, error) {
@@ -163,7 +163,7 @@ func (gs *Session) QueueSingle(search string) (Track, error) {
 	}
 
 	// Signal that we want to join the voice channel and start playing.
-	gs.p.StartPlayLoop(gs.msg, gs.joinVoice)
+	gs.p.Start(gs.msg, gs.joinVoice)
 	return track, nil
 }
 
