@@ -1,6 +1,6 @@
-# dndmusic
+# flarhgunnstow
 
-dndmusic is a discord music bot with full playlist integration and a websocket web UI.
+flarhgunnstow is a discord music bot with full playlist integration and a websocket web UI.
 
 ## Usage
 
@@ -9,7 +9,7 @@ This bot is only available for you to use self hosted.
 ## Warning
 
 This bot is pre-alpha, and contains bugs & issues, and a lot of what is in this README is
-unimplemented.  See [TODO](#TODO) for a better list.
+unimplemented. See [TODO](#TODO) for a better list.
 
 These docs are not written for beginners. Eventually I'll get around to writing an easy
 deployment guide. Given how buggy it is currently you may just have to wait for it.
@@ -57,7 +57,6 @@ server {
                 proxy_pass http://127.0.0.1:9116;
         }
 }
-
 ```
 
 ## TODO
